@@ -25,7 +25,7 @@ else:
     DIGIT_9 = b'9'
 
 
-def spliterate(s, sep=" ", max_split=-1):
+def spliterate(s, sep=b" ", max_split=-1):
     p = 0
     try:
         while max_split != 0:
@@ -89,14 +89,17 @@ class HTTP(object):
         f = self.file
 
         # Status line
-        status_fields = spliterate(f.readline())
-        next(status_fields)
-        self.status_code = int(next(status_fields))
-        self.reason_phrase = next(status_fields)
+        status_line = f.readline()
+        p = status_line.index(b" ") + 1
+        q = status_line.index(b" ", p)
+        self.status_code = int(status_line[p:q])
+        p = q + 1
+        q = status_line.index(EOL, p)
+        self.reason_phrase = status_line[p:q]
 
         # Headers
         headers = self.headers
-        headers.clear()
+        del headers[:]
         self.content_length = None
         self._content_type = None
         while True:
@@ -124,14 +127,6 @@ class HTTP(object):
     def content(self):
         return self.file.read(self.content_length)
 
-    def typed_content(self):
-        content_type = self.content_type
-        if content_type == b"application/json" or content_type.startswith(b"application/json;"):
-            import json
-            return json.loads(self.file.read(self.content_length).decode("utf-8"))
-        else:
-            return self.file.read(self.content_length)
-
 
 def test():
     http = HTTP()
@@ -143,7 +138,7 @@ def test():
             print(http.reason_phrase)
             print(http.content_length)
             print(http.content_type)
-            content = http.typed_content()
+            content = http.content()
             print(content)
             print()
     http.close()
