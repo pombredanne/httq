@@ -5,7 +5,7 @@
 import json
 import os
 
-from httq import HTTP, POST
+from httq import HTTP
 
 
 http = HTTP()
@@ -19,7 +19,7 @@ BODY = json.dumps({"statements": [{"statement": "RETURN 1"}]}, ensure_ascii=True
 
 
 def query():
-    http.request(POST, b"/db/data/transaction/commit", {b"Content-Type": b"application/json"}, BODY)
+    http.post(b"/db/data/transaction/commit", {b"Content-Type": b"application/json"}, BODY)
     if http.response() == 200:
         raw = http.read()
         if LOOPS == 1:

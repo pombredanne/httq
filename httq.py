@@ -146,7 +146,6 @@ class HTTP(object):
         :param uri:
         :param headers:
         :param body:
-        :return:
         """
         assert isinstance(method, bytes)
         assert isinstance(uri, bytes)
@@ -171,33 +170,76 @@ class HTTP(object):
         # Send
         self.socket.sendall(b"".join(bits))
 
+    def options(self, uri=b"*", headers=None, body=None):
+        """ Make or initiate an OPTIONS request to the remote host.
+
+        :param uri:
+        :param headers:
+        :param body:
+        """
+        self.request(b"OPTIONS", uri, headers, body)
+
+    def get(self, uri, headers=None):
+        """ Make a GET request to the remote host.
+
+        :param uri:
+        :param headers:
+        """
+        self.request(b"GET", uri, headers, b"")
+
+    def head(self, uri, headers=None):
+        """ Make a HEAD request to the remote host.
+
+        :param uri:
+        :param headers:
+        """
+        self.request(b"HEAD", uri, headers, b"")
+
+    def post(self, uri, headers=None, body=None):
+        """ Make or initiate a POST request to the remote host.
+
+        :param uri:
+        :param headers:
+        :param body:
+        """
+        self.request(b"POST", uri, headers, body)
+
+    def put(self, uri, headers=None, body=None):
+        """ Make or initiate a PUT request to the remote host.
+
+        :param uri:
+        :param headers:
+        :param body:
+        """
+        self.request(b"PUT", uri, headers, body)
+
+    def delete(self, uri, headers=None):
+        """ Make a DELETE request to the remote host.
+
+        :param uri:
+        :param headers:
+        """
+        self.request(b"DELETE", uri, headers, b"")
+
+    def trace(self, uri, headers=None, body=None):
+        """ Make or initiate a TRACE request to the remote host.
+
+        :param uri:
+        :param headers:
+        :param body:
+        """
+        self.request(b"TRACE", uri, headers, body)
+
     def write(self, *chunks):
+        """ Write one or more chunks of request data to teh remote host.
+
+        :param chunks:
+        """
         bits = []
         for chunk in chunks:
             assert isinstance(chunk, bytes)
             bits += [hexb(len(chunk)), b"\r\n", chunk, b"\r\n"]
         self.socket.sendall(b"".join(bits))
-
-    def options(self, uri=b"*", headers=None, body=None):
-        self.request(b"OPTIONS", uri, headers, body)
-
-    def get(self, uri, headers=None):
-        self.request(b"GET", uri, headers, b"")
-
-    def head(self, uri, headers=None):
-        self.request(b"HEAD", uri, headers, b"")
-
-    def post(self, uri, headers=None, body=None):
-        self.request(b"POST", uri, headers, body)
-
-    def put(self, uri, headers=None, body=None):
-        self.request(b"PUT", uri, headers, body)
-
-    def delete(self, uri, headers=None):
-        self.request(b"DELETE", uri, headers, b"")
-
-    def trace(self, uri, headers=None, body=None):
-        self.request(b"TRACE", uri, headers, body)
 
     def response(self):
         # Status line
