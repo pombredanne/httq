@@ -8,8 +8,7 @@ import os
 from httq import HTTP
 
 
-http = HTTP()
-http.connect(b"localhost", 7474)
+http = HTTP(b"localhost", 7474, authorization=(b"neo4j", b"password"))
 
 try:
     LOOPS = int(os.getenv("LOOPS", "1"))

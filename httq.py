@@ -2,6 +2,7 @@
 # -*- encoding: utf-8 -*-
 
 
+from base64 import b64encode
 from io import DEFAULT_BUFFER_SIZE
 from select import select
 import socket
@@ -18,11 +19,6 @@ GET = b"GET"
 PUT = b"PUT"
 POST = b"POST"
 DELETE = b"DELETE"
-
-HEADERS = {
-    # argument         header         transform function
-    "content_type": (b"Content-Type", None),
-}
 
 HEXEN = [b"0", b"1", b"2", b"3", b"4", b"5", b"6", b"7", b"8", b"9", b"A", b"B", b"C", b"D", b"E", b"F"]
 
@@ -51,6 +47,24 @@ else:
     int_to_bytes = bytes
 
 
+def credentials(value):
+    try:
+        user_id, password = value
+    except ValueError:
+        raise ValueError("")
+    else:
+        assert isinstance(user_id, bytes), "User ID must be a bytes object"
+        assert isinstance(password, bytes), "Password must be a bytes object"
+        return b"Basic " + b64encode(b":".join((user_id, password)))
+
+
+HEADERS = {
+    # argument         header         transform function
+    "authorization": (b"Authorization", credentials),
+    "content_type": (b"Content-Type", None),
+}
+
+
 def log(line, colour):
     if __debug__:
         print("\x1b[3%sm%s\x1b[0m" % (colour, line.decode("ISO-8859-1")))
@@ -69,26 +83,39 @@ class HTTP(object):
     host = None
     port = None
     host_port = None
-    _received = b""
+
+    # Request attributes
+    _request_headers = []
 
     # Response attributes
+    _received = b""
     version = None
     status_code = None
     reason_phrase = None
-    _raw_headers = {}
-    _parsed_headers = {}
-    _parsed_header_params = {}
+    _raw_response_headers = {}
+    _parsed_response_headers = {}
+    _parsed_response_header_params = {}
     readable = False
     writable = False
 
-    def __init__(self, host=None, port=None):
+    def __init__(self, host=None, port=None, **headers):
+        for key, value in headers.items():
+            try:
+                header, to_bytes = HEADERS[key]
+            except KeyError:
+                raise ValueError("Unknown header %r" % key)
+            else:
+                if to_bytes:
+                    value = to_bytes(value)
+                self._request_headers += [header, b": ", value, b"\r\n"]
+
         if host is not None:
             self.connect(host, port)
 
     def __del__(self):
         try:
             self.socket.close()
-        except:
+        except socket.error:
             pass
 
     def _recv(self, n):
@@ -103,30 +130,34 @@ class HTTP(object):
 
     def _read(self, n):
         if n > len(self._received):
+            recv = self._recv
             while True:
                 required = n - len(self._received)
                 if required > DEFAULT_BUFFER_SIZE:
-                    self._recv(required)
+                    recv(required)
                 elif required > 0:
-                    self._recv(DEFAULT_BUFFER_SIZE)
+                    recv(DEFAULT_BUFFER_SIZE)
                 else:
                     break
-        line, self._received = self._received[:n], self._received[n:]
+        received = self._received
+        line, self._received = received[:n], received[n:]
         return line
 
     def _read_line(self):
+        recv = self._recv
         while True:
             try:
                 eol = self._received.index(b"\r\n")
             except ValueError:
-                self._recv(DEFAULT_BUFFER_SIZE)
+                recv(DEFAULT_BUFFER_SIZE)
             else:
-                line, self._received = self._received[:eol], self._received[(eol + 2):]
+                received = self._received
+                line, self._received = received[:eol], received[(eol + 2):]
                 return line
 
     def _parse_header(self, key, value, converter=None):
         if value is None:
-            self._parsed_headers[key] = None
+            self._parsed_response_headers[key] = None
         p = 0
         delimiter = value.find(b";", p)
         eol = len(value)
@@ -150,14 +181,14 @@ class HTTP(object):
                 else:
                     params[value[p:delimiter]] = None
             if params:
-                self._parsed_header_params[key] = params
+                self._parsed_response_header_params[key] = params
         else:
             string_value = value[p:]
         try:
             parsed_value = converter(string_value)
         except (TypeError, ValueError):
             parsed_value = string_value
-        self._parsed_headers[key] = parsed_value
+        self._parsed_response_headers[key] = parsed_value
         return parsed_value
 
     def connect(self, host, port=None):
@@ -201,12 +232,16 @@ class HTTP(object):
             self.write(b"")
 
         # Other headers
+        data += self._request_headers
         for key, value in headers.items():
-            assert isinstance(value, bytes)
             try:
-                data += [HEADERS[key], b": ", value, b"\r\n"]
+                header, to_bytes = HEADERS[key]
             except KeyError:
                 raise ValueError("Unknown header %r" % key)
+            else:
+                if to_bytes:
+                    value = to_bytes(value)
+                data += [header, b": ", value, b"\r\n"]
 
         # Content-Length & body or Transfer-Encoding
         if body is None:
@@ -269,8 +304,8 @@ class HTTP(object):
 
         # Headers
         self.readable = status_code != 204
-        self._parsed_headers.clear()
-        raw_headers = self._raw_headers
+        self._parsed_response_headers.clear()
+        raw_headers = self._raw_response_headers
         raw_headers.clear()
         while True:
             header_line = self._read_line()
@@ -297,39 +332,39 @@ class HTTP(object):
 
     @property
     def allow(self):
-        if b"allow" not in self._parsed_headers:
-            self._parse_header(b"allow", self._raw_headers.get(b"allow"), lambda x: x.split(b","))
-        return self._parsed_headers.get(b"allow")
+        if b"allow" not in self._parsed_response_headers:
+            self._parse_header(b"allow", self._raw_response_headers.get(b"allow"), lambda x: x.split(b","))
+        return self._parsed_response_headers.get(b"allow")
 
     @property
     def connection(self):
-        return self._parsed_headers.get(b"connection")
+        return self._parsed_response_headers.get(b"connection")
 
     @property
     def content_length(self):
-        return self._parsed_headers.get(b"content-length")
+        return self._parsed_response_headers.get(b"content-length")
 
     @property
     def content_type(self):
-        if b"content-type" not in self._parsed_headers:
-            self._parse_header(b"content-type", self._raw_headers.get(b"content-type"))
-        return self._parsed_headers.get(b"content-type")
+        if b"content-type" not in self._parsed_response_headers:
+            self._parse_header(b"content-type", self._raw_response_headers.get(b"content-type"))
+        return self._parsed_response_headers.get(b"content-type")
 
     @property
     def server(self):
-        if b"server" not in self._parsed_headers:
-            self._parse_header(b"server", self._raw_headers.get(b"server"))
-        return self._parsed_headers.get(b"server")
+        if b"server" not in self._parsed_response_headers:
+            self._parse_header(b"server", self._raw_response_headers.get(b"server"))
+        return self._parsed_response_headers.get(b"server")
 
     @property
     def transfer_encoding(self):
-        return self._parsed_headers.get(b"transfer-encoding")
+        return self._parsed_response_headers.get(b"transfer-encoding")
 
     @property
     def www_authenticate(self):
-        if b"www-authenticate" not in self._parsed_headers:
-            self._parse_header(b"www-authenticate", self._raw_headers.get(b"www-authenticate"))
-        return self._parsed_headers.get(b"www-authenticate")
+        if b"www-authenticate" not in self._parsed_response_headers:
+            self._parse_header(b"www-authenticate", self._raw_response_headers.get(b"www-authenticate"))
+        return self._parsed_response_headers.get(b"www-authenticate")
 
     def read(self):
         assert self.readable, "No content available to read"
