@@ -6,6 +6,10 @@ from io import DEFAULT_BUFFER_SIZE
 from select import select
 import socket
 import sys
+try:
+    from urllib.parse import urlparse
+except ImportError:
+    from urlparse import urlparse
 
 
 DEFAULT_PORT = 80
@@ -16,7 +20,8 @@ POST = b"POST"
 DELETE = b"DELETE"
 
 HEADERS = {
-    "content_type": b"Content-Type",
+    # argument         header         transform function
+    "content_type": (b"Content-Type", None),
 }
 
 HEXEN = [b"0", b"1", b"2", b"3", b"4", b"5", b"6", b"7", b"8", b"9", b"A", b"B", b"C", b"D", b"E", b"F"]
@@ -47,7 +52,7 @@ else:
 
 
 def log(line, colour):
-    if __debug__ and line:
+    if __debug__:
         print("\x1b[3%sm%s\x1b[0m" % (colour, line.decode("ISO-8859-1")))
 
 
@@ -67,6 +72,7 @@ class HTTP(object):
     _received = b""
 
     # Response attributes
+    version = None
     status_code = None
     reason_phrase = None
     _raw_headers = {}
@@ -75,9 +81,15 @@ class HTTP(object):
     readable = False
     writable = False
 
-    def __init__(self, host=None, port=DEFAULT_PORT):
+    def __init__(self, host=None, port=None):
         if host is not None:
             self.connect(host, port)
+
+    def __del__(self):
+        try:
+            self.socket.close()
+        except:
+            pass
 
     def _recv(self, n):
         s = self.socket
@@ -148,7 +160,7 @@ class HTTP(object):
         self._parsed_headers[key] = parsed_value
         return parsed_value
 
-    def connect(self, host, port=DEFAULT_PORT):
+    def connect(self, host, port=None):
         """ Establish a connection to a remote host.
 
         :param host: the host to connect to
@@ -158,8 +170,8 @@ class HTTP(object):
 
         # Reset connection attributes
         self.host = host
-        self.port = port
-        self.host_port = host if port == DEFAULT_PORT else host + b":" + int_to_bytes(port)
+        self.port = port or DEFAULT_PORT
+        self.host_port = host if self.port == DEFAULT_PORT else host + b":" + int_to_bytes(port)
 
         # Establish connection
         self.socket = socket.create_connection((self.host, self.port))
@@ -210,10 +222,16 @@ class HTTP(object):
             self.writable = False
 
         # Send
-        if __debug__:
-            for i, line in enumerate(b"".join(data).rstrip().split(b"\r\n")):
-                log(line, 6 if i == 0 else 4)
-        self.socket.sendall(b"".join(data))
+        try:
+            self.socket.sendall(b"".join(data))
+        except socket.error:
+            raise ConnectionError("Peer has closed connection")
+        else:
+            if __debug__:
+                for i, line in enumerate(b"".join(data)[:-2].split(b"\r\n")):
+                    log(line, 6 if i == 0 else 4)
+
+        return self
 
     def write(self, *chunks):
         """ Write one or more chunks of request data to the remote host.
@@ -232,6 +250,8 @@ class HTTP(object):
                 break
         self.socket.sendall(b"".join(data))
 
+        return self
+
     def response(self):
         if self.readable:
             self.read()
@@ -239,7 +259,9 @@ class HTTP(object):
         # Status line
         status_line = self._read_line()
         log(status_line, 6)
-        p = status_line.index(b" ") + 1
+        p = status_line.index(b" ")
+        self.version = status_line[:p]
+        p += 1
         q = status_line.index(b" ", p)
         status_code = int(status_line[p:q])
         self.status_code = status_code
@@ -271,7 +293,7 @@ class HTTP(object):
                 if chunked:
                     self.readable = True
 
-        return self.status_code
+        return self
 
     @property
     def allow(self):
@@ -340,7 +362,7 @@ class HTTP(object):
         :param headers:
         :param body:
         """
-        self.request(b"OPTIONS", uri, body, **headers)
+        return self.request(b"OPTIONS", uri, body, **headers)
 
     def get(self, uri, **headers):
         """ Make a GET request to the remote host.
@@ -348,7 +370,7 @@ class HTTP(object):
         :param uri:
         :param headers:
         """
-        self.request(b"GET", uri, b"", **headers)
+        return self.request(b"GET", uri, b"", **headers)
 
     def head(self, uri, **headers):
         """ Make a HEAD request to the remote host.
@@ -356,7 +378,7 @@ class HTTP(object):
         :param uri:
         :param headers:
         """
-        self.request(b"HEAD", uri, b"", **headers)
+        return self.request(b"HEAD", uri, b"", **headers)
 
     def post(self, uri, body=None, **headers):
         """ Make or initiate a POST request to the remote host.
@@ -365,7 +387,7 @@ class HTTP(object):
         :param headers:
         :param body:
         """
-        self.request(b"POST", uri, body, **headers)
+        return self.request(b"POST", uri, body, **headers)
 
     def put(self, uri, body=None, **headers):
         """ Make or initiate a PUT request to the remote host.
@@ -374,7 +396,7 @@ class HTTP(object):
         :param headers:
         :param body:
         """
-        self.request(b"PUT", uri, body, **headers)
+        return self.request(b"PUT", uri, body, **headers)
 
     def delete(self, uri, **headers):
         """ Make a DELETE request to the remote host.
@@ -382,7 +404,7 @@ class HTTP(object):
         :param uri:
         :param headers:
         """
-        self.request(b"DELETE", uri, b"", **headers)
+        return self.request(b"DELETE", uri, b"", **headers)
 
     def trace(self, uri, body=None, **headers):
         """ Make or initiate a TRACE request to the remote host.
@@ -391,4 +413,47 @@ class HTTP(object):
         :param headers:
         :param body:
         """
-        self.request(b"TRACE", uri, body, **headers)
+        return self.request(b"TRACE", uri, body, **headers)
+
+
+def main2():
+    script, opts, args = sys.argv[0], {}, []
+    for arg in sys.argv[1:]:
+        if arg.startswith("-"):
+            opts[arg] = None
+        else:
+            args.append(arg)
+    url = args[0]
+    parsed = urlparse(url)
+    http = HTTP(parsed.hostname, parsed.port)
+    if parsed.query:
+        relative_url = "%s?%s" % (parsed.path, parsed.query)
+    else:
+        relative_url = parsed.path
+    http.get(relative_url)
+    print(http.response().read())
+
+
+def main3():
+    script, opts, args = sys.argv[0], {}, []
+    for arg in sys.argv[1:]:
+        if arg.startswith("-"):
+            opts[arg] = None
+        else:
+            args.append(arg)
+    url = args[0].encode("ISO-8859-1")
+    parsed = urlparse(url)
+    http = HTTP(parsed.hostname, parsed.port)
+    if parsed.query:
+        relative_url = "%s?%s" % (parsed.path, parsed.query)
+    else:
+        relative_url = parsed.path
+    http.get(relative_url)
+    print(http.response().read().decode("ISO-8859-1"))
+
+
+if __name__ == "__main__":
+    if sys.version_info >= (3,):
+        main3()
+    else:
+        main2()
