@@ -245,13 +245,13 @@ class HTTP(object):
 
         # Content-Length & body or Transfer-Encoding
         if body is None:
-            data += [b"Transfer-Encoding: chunked\r\n\r\n"]
+            data.append(b"Transfer-Encoding: chunked\r\n\r\n")
             self.writable = True
         else:
             assert isinstance(body, bytes)
             content_length = len(body)
             if content_length == 0:
-                data += [b"\r\n"]
+                data.append(b"\r\n")
             else:
                 data += [b"Content-Length: ", int_to_bytes(content_length), b"\r\n\r\n", body]
             self.writable = False
@@ -383,7 +383,7 @@ class HTTP(object):
             chunk_size = -1
             while chunk_size != 0:
                 chunk_size = int(read_line(), 16)
-                chunks += [read(chunk_size)]
+                chunks.append(read(chunk_size))
                 read(2)
             content = b"".join(chunks)
 
