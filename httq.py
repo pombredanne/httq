@@ -79,6 +79,7 @@ class ConnectionError(IOError):
 class HTTP(object):
 
     # Connection attributes
+    connected = False
     socket = None
     host = None
     port = None
@@ -198,6 +199,7 @@ class HTTP(object):
         :param port: the port on which to connect (defaults to DEFAULT_PORT)
         """
         assert isinstance(host, bytes), "Host name must be a bytes object"
+        assert not self.connected, "Already connected to %s on port %d" % (self.host, self.port)
 
         # Reset connection attributes
         self.host = host
@@ -207,12 +209,22 @@ class HTTP(object):
         # Establish connection
         self.socket = socket.create_connection((self.host, self.port))
         self._received = b""
+        self.connected = True
+
+        return self
 
     def close(self):
         """ Close the current connection.
         """
-        self.socket.close()
-        self.socket = None
+        if self.socket:
+            self.socket.close()
+            self.socket = None
+        self._received = b""
+        self.connected = False
+
+        self.host = None
+        self.port = None
+        self.host_port = None
 
     def request(self, method, uri, body=None, **headers):
         """ Make or initiate a request to the remote host.
@@ -263,7 +275,7 @@ class HTTP(object):
             raise ConnectionError("Peer has closed connection")
         else:
             if __debug__:
-                for i, line in enumerate(b"".join(data)[:-2].split(b"\r\n")):
+                for i, line in enumerate(b"".join(data[:-1])[:-2].split(b"\r\n")):
                     log(line, 6 if i == 0 else 4)
 
         return self
@@ -328,6 +340,9 @@ class HTTP(object):
                 if chunked:
                     self.readable = True
 
+        if not self.readable:
+            self.finish()
+
         return self
 
     @property
@@ -388,7 +403,13 @@ class HTTP(object):
             content = b"".join(chunks)
 
         self.readable = None
+        self.finish()
+
         return content
+
+    def finish(self):
+        if self.version == b"HTTP/1.0" or self.connection == b"close":
+            self.close()
 
     def options(self, uri=b"*", body=None, **headers):
         """ Make or initiate an OPTIONS request to the remote host.
