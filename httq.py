@@ -124,20 +124,23 @@ class HTTP(object):
         ready_to_read, _, _ = select((s,), (), (), 0)
         if ready_to_read:
             data = s.recv(n)
-            if data:
-                self._received += data
-            else:
+            data_length = len(data)
+            if data_length == 0:
                 raise ConnectionError("Peer has closed connection")
+            self._received += data
+            return len(data)
+        else:
+            return 0
 
     def _read(self, n):
-        if n > len(self._received):
+        required = n - len(self._received)
+        if required > 0:
             recv = self._recv
             while True:
-                required = n - len(self._received)
                 if required > DEFAULT_BUFFER_SIZE:
-                    recv(required)
+                    required -= recv(required)
                 elif required > 0:
-                    recv(DEFAULT_BUFFER_SIZE)
+                    required -= recv(DEFAULT_BUFFER_SIZE)
                 else:
                     break
         received = self._received
@@ -146,9 +149,11 @@ class HTTP(object):
 
     def _read_line(self):
         recv = self._recv
+        p = 0
         while True:
-            eol = self._received.find(b"\r\n")
+            eol = self._received.find(b"\r\n", p)
             if eol == -1:
+                p = len(self._received)
                 recv(DEFAULT_BUFFER_SIZE)
             else:
                 received = self._received
