@@ -147,9 +147,8 @@ class HTTP(object):
     def _read_line(self):
         recv = self._recv
         while True:
-            try:
-                eol = self._received.index(b"\r\n")
-            except ValueError:
+            eol = self._received.find(b"\r\n")
+            if eol == -1:
                 recv(DEFAULT_BUFFER_SIZE)
             else:
                 received = self._received
@@ -171,9 +170,8 @@ class HTTP(object):
                 while value[p] == SP_CHAR:
                     p += 1
                 # Find next delimiter
-                try:
-                    delimiter = value.index(b";", p)
-                except ValueError:
+                delimiter = value.find(b";", p)
+                if delimiter == -1:
                     delimiter = eol
                 # Add parameter
                 eq = value.find(b"=", p)
@@ -306,10 +304,10 @@ class HTTP(object):
         # Status line
         status_line = self._read_line()
         log(status_line, 6)
-        p = status_line.index(b" ")
+        p = status_line.find(b" ")
         self.version = status_line[:p]
         p += 1
-        q = status_line.index(b" ", p)
+        q = status_line.find(b" ", p)
         status_code = int(status_line[p:q])
         self.status_code = status_code
         self.reason_phrase = status_line[(q + 1):]
@@ -324,7 +322,7 @@ class HTTP(object):
             log(header_line, 4)
             if header_line == b"":
                 break
-            delimiter = header_line.index(b":")
+            delimiter = header_line.find(b":")
             key = header_line[:delimiter].lower()
             p = delimiter + 1
             while header_line[p] == SP_CHAR:
