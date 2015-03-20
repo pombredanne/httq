@@ -115,7 +115,7 @@ class HTTP(object):
 
     def __del__(self):
         try:
-            self.socket.close()
+            self.close()
         except socket.error:
             pass
 
@@ -202,12 +202,14 @@ class HTTP(object):
         :param port: the port on which to connect (defaults to DEFAULT_PORT)
         """
         assert isinstance(host, bytes), "Host name must be a bytes object"
-        assert not self.connected, "Already connected to %s on port %d" % (self.host, self.port)
 
         # Reset connection attributes
         self.host = host
         self.port = port or DEFAULT_PORT
         self.host_port = host if self.port == DEFAULT_PORT else host + b":" + int_to_bytes(port)
+
+        if __debug__:
+            log(b"Connecting to " + self.host + b" on port " + int_to_bytes(self.port), 1)
 
         # Establish connection
         self.socket = socket.create_connection((self.host, self.port))
@@ -216,9 +218,20 @@ class HTTP(object):
 
         return self
 
+    def reconnect(self):
+        host = self.host
+        port = self.port
+        self.close()
+        self.connect(host, port)
+
+        return self
+
     def close(self):
         """ Close the current connection.
         """
+        if __debug__:
+            log(b"Closing connection", 1)
+
         if self.socket:
             self.socket.close()
             self.socket = None
@@ -229,22 +242,24 @@ class HTTP(object):
         self.port = None
         self.host_port = None
 
-    def request(self, method, uri, body=None, **headers):
+        return self
+
+    def request(self, method, url, body=None, **headers):
         """ Make or initiate a request to the remote host.
 
         :param method:
-        :param uri:
+        :param url:
         :param headers:
         :param body:
         """
         assert isinstance(method, bytes), "Method must be a bytes object"
-        assert isinstance(uri, bytes), "URI must be a bytes object"
-
-        # Request and Host header
-        data = [method, b" ", uri, b" HTTP/1.1\r\nHost: ", self.host_port, b"\r\n"]
+        assert isinstance(url, bytes), "URI must be a bytes object"
 
         if self.writable:
             self.write(b"")
+
+        # Request and Host header
+        data = [method, b" ", url, b" HTTP/1.1\r\nHost: ", self.host_port, b"\r\n"]
 
         # Other headers
         data += self._request_headers
@@ -273,12 +288,13 @@ class HTTP(object):
 
         # Send
         try:
-            self.socket.sendall(b"".join(data))
+            joined = b"".join(data)
+            self.socket.sendall(joined)
         except socket.error:
             raise ConnectionError("Peer has closed connection")
         else:
             if __debug__:
-                for i, line in enumerate(b"".join(data[:-1])[:-2].split(b"\r\n")):
+                for i, line in enumerate(b"".join(data)[:-2].split(b"\r\n")):
                     log(line, 6 if i == 0 else 4)
 
         return self
@@ -298,7 +314,8 @@ class HTTP(object):
             if chunk_length == 0:
                 self.writable = False
                 break
-        self.socket.sendall(b"".join(data))
+        joined = b"".join(data)
+        self.socket.sendall(joined)
 
         return self
 
