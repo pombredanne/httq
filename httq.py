@@ -431,65 +431,65 @@ class HTTP(object):
         if self.version == b"HTTP/1.0" or self.connection == b"close":
             self.close()
 
-    def options(self, uri=b"*", body=None, **headers):
+    def options(self, url=b"*", body=None, **headers):
         """ Make or initiate an OPTIONS request to the remote host.
 
-        :param uri:
+        :param url:
         :param headers:
         :param body:
         """
-        return self.request(b"OPTIONS", uri, body, **headers)
+        return self.request(b"OPTIONS", url, body, **headers)
 
-    def get(self, uri, **headers):
+    def get(self, url, **headers):
         """ Make a GET request to the remote host.
 
-        :param uri:
+        :param url:
         :param headers:
         """
-        return self.request(b"GET", uri, b"", **headers)
+        return self.request(b"GET", url, b"", **headers)
 
-    def head(self, uri, **headers):
+    def head(self, url, **headers):
         """ Make a HEAD request to the remote host.
 
-        :param uri:
+        :param url:
         :param headers:
         """
-        return self.request(b"HEAD", uri, b"", **headers)
+        return self.request(b"HEAD", url, b"", **headers)
 
-    def post(self, uri, body=None, **headers):
+    def post(self, url, body=None, **headers):
         """ Make or initiate a POST request to the remote host.
 
-        :param uri:
+        :param url:
         :param headers:
         :param body:
         """
-        return self.request(b"POST", uri, body, **headers)
+        return self.request(b"POST", url, body, **headers)
 
-    def put(self, uri, body=None, **headers):
+    def put(self, url, body=None, **headers):
         """ Make or initiate a PUT request to the remote host.
 
-        :param uri:
+        :param url:
         :param headers:
         :param body:
         """
-        return self.request(b"PUT", uri, body, **headers)
+        return self.request(b"PUT", url, body, **headers)
 
-    def delete(self, uri, **headers):
+    def delete(self, url, **headers):
         """ Make a DELETE request to the remote host.
 
-        :param uri:
+        :param url:
         :param headers:
         """
-        return self.request(b"DELETE", uri, b"", **headers)
+        return self.request(b"DELETE", url, b"", **headers)
 
-    def trace(self, uri, body=None, **headers):
+    def trace(self, url, body=None, **headers):
         """ Make or initiate a TRACE request to the remote host.
 
-        :param uri:
+        :param url:
         :param headers:
         :param body:
         """
-        return self.request(b"TRACE", uri, body, **headers)
+        return self.request(b"TRACE", url, body, **headers)
 
 
 def main2():
