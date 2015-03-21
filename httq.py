@@ -22,24 +22,24 @@ DELETE = b"DELETE"
 
 
 if sys.version_info >= (3,):
-    SP_CHAR = ord(' ')
+    SPACE = ord(' ')
 
-    def hexb(n):
+    def hex_to_bytes(n):
         return hex(n)[2:].encode("UTF-8")
 
     def int_to_bytes(n):
         return str(n).encode("UTF-8")
 
 else:
-    SP_CHAR = b' '
+    SPACE = b' '
 
-    def hexb(n):
+    def hex_to_bytes(n):
         return hex(n)[2:]
 
     int_to_bytes = bytes
 
 
-def credentials(value):
+def credentials_to_bytes(value):
     try:
         user_id, password = value
     except ValueError:
@@ -57,7 +57,7 @@ REQUEST_HEADERS = {
     "accept_datetime": (b"Accept-Datetime", None),
     "accept_encoding": (b"Accept-Encoding", None),
     "accept_language": (b"Accept-Language", None),
-    "authorization": (b"Authorization", credentials),
+    "authorization": (b"Authorization", credentials_to_bytes),
     "cache_control": (b"Cache-Control", None),
     "connection": (b"Connection", None),
     "content_length": (b"Content-Length", int_to_bytes),
@@ -76,7 +76,7 @@ REQUEST_HEADERS = {
     "max_forwards": (b"Max-Forwards", int_to_bytes),
     "origin": (b"Origin", None),
     "pragma": (b"Pragma", None),
-    "proxy_authorization": (b"Proxy-Authorization", credentials),
+    "proxy_authorization": (b"Proxy-Authorization", credentials_to_bytes),
     "range": (b"Range", None),
     "referer": (b"Referer", None),
     "te": (b"TE", None),
@@ -85,6 +85,8 @@ REQUEST_HEADERS = {
     "via": (b"Via", None),
     "warning": (b"Warning", None),
 }
+
+STATUS_CODES = {str(code).encode("UTF-8"): code for code in range(100, 600)}
 
 
 def log(line, colour):
@@ -105,10 +107,9 @@ class HTTP(object):
     socket = None
     host = None
     port = None
-    host_port = None
 
     # Request attributes
-    _request_headers = []
+    request_headers = {}
 
     # Response attributes
     _received = b""
@@ -121,19 +122,8 @@ class HTTP(object):
     readable = False
     writable = False
 
-    def __init__(self, host=None, port=None, **headers):
-        for key, value in headers.items():
-            try:
-                header, to_bytes = REQUEST_HEADERS[key]
-            except KeyError:
-                raise ValueError("Unknown header %r" % key)
-            else:
-                if to_bytes:
-                    value = to_bytes(value)
-                self._request_headers += [header, b": ", value, b"\r\n"]
-
-        if host is not None:
-            self.connect(host, port)
+    def __init__(self, host, port=None, **headers):
+        self.connect(host, port, **headers)
 
     def __del__(self):
         try:
@@ -188,7 +178,7 @@ class HTTP(object):
             while delimiter < eol:
                 # Skip whitespace after previous delimiter
                 p = delimiter + 1
-                while value[p] == SP_CHAR:
+                while value[p] == SPACE:
                     p += 1
                 # Find next delimiter
                 delimiter = value.find(b";", p)
@@ -211,7 +201,7 @@ class HTTP(object):
         self._parsed_response_headers[key] = parsed_value
         return parsed_value
 
-    def connect(self, host, port=None):
+    def connect(self, host, port=None, **headers):
         """ Establish a connection to a remote host.
 
         :param host: the host to connect to
@@ -219,10 +209,21 @@ class HTTP(object):
         """
         assert isinstance(host, bytes), "Host name must be a bytes object"
 
-        # Reset connection attributes
+        # Reset connection attributes and headers
         self.host = host
         self.port = port or DEFAULT_PORT
-        self.host_port = host if self.port == DEFAULT_PORT else host + b":" + int_to_bytes(port)
+        self.request_headers.clear()
+        self.request_headers[b"Host"] = (host if self.port == DEFAULT_PORT
+                                         else host + b":" + int_to_bytes(port))
+        for key, value in headers.items():
+            try:
+                header, to_bytes = REQUEST_HEADERS[key]
+            except KeyError:
+                raise ValueError("Unknown header %r" % key)
+            else:
+                if to_bytes:
+                    value = to_bytes(value)
+                self.request_headers[header] = value
 
         if __debug__:
             log(b"Connecting to " + self.host + b" on port " + int_to_bytes(self.port), 1)
@@ -252,27 +253,29 @@ class HTTP(object):
 
         self.host = None
         self.port = None
-        self.host_port = None
 
     def request(self, method, url, body=None, **headers):
         """ Make or initiate a request to the remote host.
 
         :param method:
         :param url:
-        :param headers:
         :param body:
+        :param headers:
         """
         assert isinstance(method, bytes), "Method must be a bytes object"
-        assert isinstance(url, bytes), "URI must be a bytes object"
+        assert isinstance(url, bytes), "URL must be a bytes object"
 
         if self.writable:
             self.write(b"")
 
-        # Request and Host header
-        data = [method, b" ", url, b" HTTP/1.1\r\nHost: ", self.host_port, b"\r\n"]
+        # Request line
+        data = [method, b" ", url, b" HTTP/1.1\r\n"]
+
+        # Common headers
+        for key, value in self.request_headers.items():
+            data += [key, b": ", value, b"\r\n"]
 
         # Other headers
-        data += self._request_headers
         for key, value in headers.items():
             try:
                 header, to_bytes = REQUEST_HEADERS[key]
@@ -283,11 +286,12 @@ class HTTP(object):
                     value = to_bytes(value)
                 data += [header, b": ", value, b"\r\n"]
 
-        # Content-Length & body or Transfer-Encoding
         if body is None:
+            # Chunked content
             data.append(b"Transfer-Encoding: chunked\r\n\r\n")
             self.writable = True
         else:
+            # Fixed-length content
             assert isinstance(body, bytes)
             content_length = len(body)
             if content_length == 0:
@@ -320,7 +324,7 @@ class HTTP(object):
         for chunk in chunks:
             assert isinstance(chunk, bytes)
             chunk_length = len(chunk)
-            data += [hexb(chunk_length), b"\r\n", chunk, b"\r\n"]
+            data += [hex_to_bytes(chunk_length), b"\r\n", chunk, b"\r\n"]
             if chunk_length == 0:
                 self.writable = False
                 break
@@ -344,7 +348,7 @@ class HTTP(object):
         self.version = status_line[:p]
         p += 1
         q = status_line.find(b" ", p)
-        status_code = int(status_line[p:q])
+        status_code = STATUS_CODES[status_line[p:q]]  # faster than using the int function
         self.status_code = status_code
         self.reason_phrase = status_line[(q + 1):]
 
@@ -360,14 +364,14 @@ class HTTP(object):
             delimiter = header_line.find(b":")
             key = header_line[:delimiter].lower()
             p = delimiter + 1
-            while header_line[p] == SP_CHAR:
+            while header_line[p] == SPACE:
                 p += 1
             value = header_line[p:]
             raw_headers[key] = value
             if key == b"content-length":
                 readable = parse_header(key, value, int)
             elif key == b"connection":
-                parse_header(key, value)  # TODO: handle connection:close
+                parse_header(key, value)
             elif key == b"transfer-encoding":
                 chunked = parse_header(key, value) == b"chunked"
                 if chunked:
@@ -379,6 +383,36 @@ class HTTP(object):
         self.readable = readable
 
         return self
+
+    def read(self):
+        assert self.readable, "No content available to read"
+
+        # Try sized
+        content_length = self.content_length
+        read = self._read
+        read_line = self._read_line
+        if content_length == 0:
+            content = b""
+        elif content_length:
+            content = read(content_length)
+        else:
+            # Assume chunked
+            chunks = []
+            chunk_size = -1
+            while chunk_size != 0:
+                chunk_size = int(read_line(), 16)
+                chunks.append(read(chunk_size))
+                read(2)
+            content = b"".join(chunks)
+
+        self.readable = None
+        self.finish()
+
+        return content
+
+    def finish(self):
+        if self.version == b"HTTP/1.0" or self.connection == b"close":
+            self.close()
 
     @property
     def access_control_allow_origin(self):
@@ -622,36 +656,6 @@ class HTTP(object):
         if b"www-authenticate" not in parsed_response_headers:
             self._parse_header(b"www-authenticate", self._raw_response_headers.get(b"www-authenticate"))
         return parsed_response_headers.get(b"www-authenticate")
-
-    def read(self):
-        assert self.readable, "No content available to read"
-
-        # Try sized
-        content_length = self.content_length
-        read = self._read
-        read_line = self._read_line
-        if content_length == 0:
-            content = b""
-        elif content_length:
-            content = read(content_length)
-        else:
-            # Assume chunked
-            chunks = []
-            chunk_size = -1
-            while chunk_size != 0:
-                chunk_size = int(read_line(), 16)
-                chunks.append(read(chunk_size))
-                read(2)
-            content = b"".join(chunks)
-
-        self.readable = None
-        self.finish()
-
-        return content
-
-    def finish(self):
-        if self.version == b"HTTP/1.0" or self.connection == b"close":
-            self.close()
 
     def options(self, url=b"*", body=None, **headers):
         """ Make or initiate an OPTIONS request to the remote host.
