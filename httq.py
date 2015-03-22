@@ -15,10 +15,8 @@ except ImportError:
 
 DEFAULT_PORT = 80
 
-GET = b"GET"
-PUT = b"PUT"
-POST = b"POST"
-DELETE = b"DELETE"
+METHODS = {m.decode("UTF-8"): m
+           for m in [b"OPTIONS", b"GET", b"HEAD", b"POST", b"PUT", b"DELETE", b"TRACE"]}
 
 
 if sys.version_info >= (3,):
@@ -283,8 +281,14 @@ class HTTP(object):
         :param body:
         :param headers:
         """
-        assert isinstance(method, bytes), "Method must be a bytes object"
-        assert isinstance(url, bytes), "URL must be a bytes object"
+        if not isinstance(method, bytes):
+            try:
+                method = METHODS[method]
+            except KeyError:
+                method = bstr(method)
+
+        if not isinstance(url, bytes):
+            url = bstr(url)
 
         if self.writable:
             self.write(b"")
@@ -441,7 +445,8 @@ class HTTP(object):
     def access_control_allow_origin(self):
         parsed_response_headers = self._parsed_response_headers
         if b"access-control-allow-origin" not in parsed_response_headers:
-            self._parse_header(b"access-control-allow-origin", self._raw_response_headers.get(b"access-control-allow-origin"))
+            self._parse_header(b"access-control-allow-origin",
+                               self._raw_response_headers.get(b"access-control-allow-origin"))
         return parsed_response_headers.get(b"access-control-allow-origin")
 
     @property
@@ -469,7 +474,8 @@ class HTTP(object):
     def allow(self):
         parsed_response_headers = self._parsed_response_headers
         if b"allow" not in parsed_response_headers:
-            self._parse_header(b"allow", self._raw_response_headers.get(b"allow"), lambda x: x.split(b","))
+            self._parse_header(b"allow",
+                               self._raw_response_headers.get(b"allow"), lambda x: x.split(b","))
         return parsed_response_headers.get(b"allow")
 
     @property
@@ -487,21 +493,24 @@ class HTTP(object):
     def content_disposition(self):
         parsed_response_headers = self._parsed_response_headers
         if b"content-disposition" not in parsed_response_headers:
-            self._parse_header(b"content-disposition", self._raw_response_headers.get(b"content-disposition"))
+            self._parse_header(b"content-disposition",
+                               self._raw_response_headers.get(b"content-disposition"))
         return parsed_response_headers.get(b"content-disposition")
 
     @property
     def content_encoding(self):
         parsed_response_headers = self._parsed_response_headers
         if b"content-encoding" not in parsed_response_headers:
-            self._parse_header(b"content-encoding", self._raw_response_headers.get(b"content-encoding"))
+            self._parse_header(b"content-encoding",
+                               self._raw_response_headers.get(b"content-encoding"))
         return parsed_response_headers.get(b"content-encoding")
 
     @property
     def content_language(self):
         parsed_response_headers = self._parsed_response_headers
         if b"content-language" not in parsed_response_headers:
-            self._parse_header(b"content-language", self._raw_response_headers.get(b"content-language"))
+            self._parse_header(b"content-language",
+                               self._raw_response_headers.get(b"content-language"))
         return parsed_response_headers.get(b"content-language")
 
     @property
@@ -512,7 +521,8 @@ class HTTP(object):
     def content_location(self):
         parsed_response_headers = self._parsed_response_headers
         if b"content-location" not in parsed_response_headers:
-            self._parse_header(b"content-location", self._raw_response_headers.get(b"content-location"))
+            self._parse_header(b"content-location",
+                               self._raw_response_headers.get(b"content-location"))
         return parsed_response_headers.get(b"content-location")
 
     @property
@@ -596,7 +606,8 @@ class HTTP(object):
     def proxy_authenticate(self):
         parsed_response_headers = self._parsed_response_headers
         if b"proxy-authenticate" not in parsed_response_headers:
-            self._parse_header(b"proxy-authenticate", self._raw_response_headers.get(b"proxy-authenticate"))
+            self._parse_header(b"proxy-authenticate",
+                               self._raw_response_headers.get(b"proxy-authenticate"))
         return parsed_response_headers.get(b"proxy-authenticate")
 
     @property
@@ -631,7 +642,8 @@ class HTTP(object):
     def strict_transport_security(self):
         parsed_response_headers = self._parsed_response_headers
         if b"strict-transport-security" not in parsed_response_headers:
-            self._parse_header(b"strict-transport-security", self._raw_response_headers.get(b"strict-transport-security"))
+            self._parse_header(b"strict-transport-security",
+                               self._raw_response_headers.get(b"strict-transport-security"))
         return parsed_response_headers.get(b"strict-transport-security")
 
     @property
@@ -677,7 +689,8 @@ class HTTP(object):
     def www_authenticate(self):
         parsed_response_headers = self._parsed_response_headers
         if b"www-authenticate" not in parsed_response_headers:
-            self._parse_header(b"www-authenticate", self._raw_response_headers.get(b"www-authenticate"))
+            self._parse_header(b"www-authenticate",
+                               self._raw_response_headers.get(b"www-authenticate"))
         return parsed_response_headers.get(b"www-authenticate")
 
     def options(self, url=b"*", body=None, **headers):

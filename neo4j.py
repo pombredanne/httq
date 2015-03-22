@@ -11,17 +11,18 @@ from httq import HTTP
 http = HTTP("localhost:7474", authorization=("neo4j", "password"))
 
 try:
-    LOOPS = int(os.getenv("LOOPS", "1"))
+    loops = int(os.getenv("LOOPS", "1"))
 except (IndexError, ValueError):
-    LOOPS = 1
-BODY = json.dumps({"statements": [{"statement": "RETURN 1"}]}, ensure_ascii=True, separators=",:").encode("UTF-8")
+    loops = 1
+
+body = json.dumps({"statements": [{"statement": "RETURN 1"}]}, ensure_ascii=True, separators=",:").encode("UTF-8")
 
 
 def query():
-    http.post(b"/db/data/transaction/commit", BODY, content_type=b"application/json")
+    http.post(b"/db/data/transaction/commit", body, content_type=b"application/json")
     if http.response().status_code == 200:
         raw = http.read()
-        if LOOPS == 1:
+        if loops == 1:
             print(raw)
             content = json.loads(raw.decode("UTF-8"))
             print(content)
@@ -30,7 +31,7 @@ def query():
 
 
 def main():
-    for i in range(LOOPS):
+    for i in range(loops):
         query()
 
 
