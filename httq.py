@@ -24,6 +24,16 @@ DELETE = b"DELETE"
 if sys.version_info >= (3,):
     SPACE = ord(' ')
 
+    def bstr(s, encoding="ISO-8859-1"):
+        if isinstance(s, bytes):
+            return s
+        elif isinstance(s, bytearray):
+            return bytes(s)
+        elif isinstance(s, str):
+            return s.encode(encoding)
+        else:
+            return str(s).encode(encoding)
+
     def hex_to_bytes(n):
         return hex(n)[2:].encode("UTF-8")
 
@@ -32,6 +42,14 @@ if sys.version_info >= (3,):
 
 else:
     SPACE = b' '
+
+    def bstr(s, encoding="ISO-8859-1"):
+        if isinstance(s, bytes):
+            return s
+        elif isinstance(s, unicode):
+            return s.encode(encoding)
+        else:
+            return bytes(s)
 
     def hex_to_bytes(n):
         return hex(n)[2:]
@@ -45,9 +63,7 @@ def credentials_to_bytes(value):
     except ValueError:
         raise ValueError("")
     else:
-        assert isinstance(user_id, bytes), "User ID must be a bytes object"
-        assert isinstance(password, bytes), "Password must be a bytes object"
-        return b"Basic " + b64encode(b":".join((user_id, password)))
+        return b"Basic " + b64encode(b":".join((bstr(user_id), bstr(password))))
 
 
 REQUEST_HEADERS = {
@@ -86,7 +102,7 @@ REQUEST_HEADERS = {
     "warning": (b"Warning", None),
 }
 
-STATUS_CODES = {str(code).encode("UTF-8"): code for code in range(100, 600)}
+STATUS_CODES = {bstr(code): code for code in range(100, 600)}
 
 
 def log(line, colour):
@@ -105,8 +121,6 @@ class HTTP(object):
     # Connection attributes
     connected = False
     socket = None
-    host = None
-    port = None
 
     # Request attributes
     request_headers = {}
@@ -122,8 +136,8 @@ class HTTP(object):
     readable = False
     writable = False
 
-    def __init__(self, host, port=None, **headers):
-        self.connect(host, port, **headers)
+    def __init__(self, host, **headers):
+        self.connect(host, **headers)
 
     def __del__(self):
         try:
@@ -201,20 +215,19 @@ class HTTP(object):
         self._parsed_response_headers[key] = parsed_value
         return parsed_value
 
-    def connect(self, host, port=None, **headers):
+    def connect(self, host, **headers):
         """ Establish a connection to a remote host.
-
-        :param host: the host to connect to
-        :param port: the port on which to connect (defaults to DEFAULT_PORT)
         """
-        assert isinstance(host, bytes), "Host name must be a bytes object"
+        if not isinstance(host, bytes):
+            host = bstr(host)
+
+        if __debug__:
+            log(b"Connecting to " + host, 1)
 
         # Reset connection attributes and headers
-        self.host = host
-        self.port = port or DEFAULT_PORT
         self.request_headers.clear()
-        self.request_headers[b"Host"] = (host if self.port == DEFAULT_PORT
-                                         else host + b":" + int_to_bytes(port))
+        self.request_headers[b"Host"] = host
+
         for key, value in headers.items():
             try:
                 header, to_bytes = REQUEST_HEADERS[key]
@@ -223,21 +236,26 @@ class HTTP(object):
             else:
                 if to_bytes:
                     value = to_bytes(value)
+                elif not isinstance(value, bytes):
+                    value = bstr(value)
                 self.request_headers[header] = value
 
-        if __debug__:
-            log(b"Connecting to " + self.host + b" on port " + int_to_bytes(self.port), 1)
-
         # Establish connection
-        self.socket = socket.create_connection((self.host, self.port))
+        host, _, port = host.partition(b":")
+        if port:
+            port = int(port)
+        else:
+            port = DEFAULT_PORT
+
+        self.socket = socket.create_connection((host, port))
         self._received = b""
         self.connected = True
 
     def reconnect(self):
         host = self.host
-        port = self.port
+        headers = self.request_headers
         self.close()
-        self.connect(host, port)
+        self.connect(host, **headers)
 
     def close(self):
         """ Close the current connection.
@@ -251,8 +269,11 @@ class HTTP(object):
         self._received = b""
         self.connected = False
 
-        self.host = None
-        self.port = None
+        self.request_headers.clear()
+
+    @property
+    def host(self):
+        return self.request_headers[b"Host"]
 
     def request(self, method, url, body=None, **headers):
         """ Make or initiate a request to the remote host.
@@ -284,6 +305,8 @@ class HTTP(object):
             else:
                 if to_bytes:
                     value = to_bytes(value)
+                elif not isinstance(value, bytes):
+                    value = bstr(value)
                 data += [header, b": ", value, b"\r\n"]
 
         if body is None:
