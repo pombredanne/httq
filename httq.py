@@ -64,11 +64,16 @@ def credentials_to_bytes(value):
         return b"Basic " + b64encode(b":".join((bstr(user_id), bstr(password))))
 
 
+def time_to_bytes(value):
+    # TODO
+    return bstr(value)
+
+
 REQUEST_HEADERS = {
     # argument: (header, transform function)
     "accept": (b"Accept", None),
     "accept_charset": (b"Accept-Charset", None),
-    "accept_datetime": (b"Accept-Datetime", None),
+    "accept_datetime": (b"Accept-Datetime", time_to_bytes),
     "accept_encoding": (b"Accept-Encoding", None),
     "accept_language": (b"Accept-Language", None),
     "authorization": (b"Authorization", credentials_to_bytes),
@@ -78,15 +83,14 @@ REQUEST_HEADERS = {
     "content_md5": (b"Content-MD5", None),
     "content_type": (b"Content-Type", None),
     "cookie": (b"Cookie", None),
-    "date": (b"Date", None),
+    "date": (b"Date", time_to_bytes),
     "expect": (b"Expect", None),
     "from": (b"From", None),
-    "host": (b"Host", None),
     "if_match": (b"If-Match", None),
-    "if_modified_since": (b"If-Modified-Since", None),
+    "if_modified_since": (b"If-Modified-Since", time_to_bytes),
     "if_none_match": (b"If-None-Match", None),
     "if_range": (b"If-Range", None),
-    "if_unmodified_since": (b"If-Unmodified-Since", None),
+    "if_unmodified_since": (b"If-Unmodified-Since", time_to_bytes),
     "max_forwards": (b"Max-Forwards", int_to_bytes),
     "origin": (b"Origin", None),
     "pragma": (b"Pragma", None),
