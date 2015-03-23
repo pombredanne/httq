@@ -35,9 +35,6 @@ if sys.version_info >= (3,):
     def hex_to_bytes(n):
         return hex(n)[2:].encode("UTF-8")
 
-    def int_to_bytes(n):
-        return str(n).encode("UTF-8")
-
 else:
     SPACE = b' '
 
@@ -52,16 +49,9 @@ else:
     def hex_to_bytes(n):
         return hex(n)[2:]
 
-    int_to_bytes = bytes
 
-
-def credentials_to_bytes(value):
-    try:
-        user_id, password = value
-    except ValueError:
-        raise ValueError("")
-    else:
-        return b"Basic " + b64encode(b":".join((bstr(user_id), bstr(password))))
+def basic_auth(user_id, password):
+    return b"Basic " + b64encode(b":".join((bstr(user_id), bstr(password))))
 
 
 def time_to_bytes(value):
@@ -70,38 +60,38 @@ def time_to_bytes(value):
 
 
 REQUEST_HEADERS = {
-    # argument: (header, transform function)
-    "accept": (b"Accept", None),
-    "accept_charset": (b"Accept-Charset", None),
-    "accept_datetime": (b"Accept-Datetime", time_to_bytes),
-    "accept_encoding": (b"Accept-Encoding", None),
-    "accept_language": (b"Accept-Language", None),
-    "authorization": (b"Authorization", credentials_to_bytes),
-    "cache_control": (b"Cache-Control", None),
-    "connection": (b"Connection", None),
-    "content_length": (b"Content-Length", int_to_bytes),
-    "content_md5": (b"Content-MD5", None),
-    "content_type": (b"Content-Type", None),
-    "cookie": (b"Cookie", None),
-    "date": (b"Date", time_to_bytes),
-    "expect": (b"Expect", None),
-    "from": (b"From", None),
-    "if_match": (b"If-Match", None),
-    "if_modified_since": (b"If-Modified-Since", time_to_bytes),
-    "if_none_match": (b"If-None-Match", None),
-    "if_range": (b"If-Range", None),
-    "if_unmodified_since": (b"If-Unmodified-Since", time_to_bytes),
-    "max_forwards": (b"Max-Forwards", int_to_bytes),
-    "origin": (b"Origin", None),
-    "pragma": (b"Pragma", None),
-    "proxy_authorization": (b"Proxy-Authorization", credentials_to_bytes),
-    "range": (b"Range", None),
-    "referer": (b"Referer", None),
-    "te": (b"TE", None),
-    "user_agent": (b"User-Agent", None),
-    "upgrade": (b"Upgrade", None),
-    "via": (b"Via", None),
-    "warning": (b"Warning", None),
+    # argument: header
+    "accept": b"Accept",
+    "accept_charset": b"Accept-Charset",
+    "accept_datetime": b"Accept-Datetime",
+    "accept_encoding": b"Accept-Encoding",
+    "accept_language": b"Accept-Language",
+    "authorization": b"Authorization",
+    "cache_control": b"Cache-Control",
+    "connection": b"Connection",
+    "content_length": b"Content-Length",
+    "content_md5": b"Content-MD5",
+    "content_type": b"Content-Type",
+    "cookie": b"Cookie",
+    "date": b"Date",
+    "expect": b"Expect",
+    "from": b"From",
+    "if_match": b"If-Match",
+    "if_modified_since": b"If-Modified-Since",
+    "if_none_match": b"If-None-Match",
+    "if_range": b"If-Range",
+    "if_unmodified_since": b"If-Unmodified-Since",
+    "max_forwards": b"Max-Forwards",
+    "origin": b"Origin",
+    "pragma": b"Pragma",
+    "proxy_authorization": b"Proxy-Authorization",
+    "range": b"Range",
+    "referer": b"Referer",
+    "te": b"TE",
+    "user_agent": b"User-Agent",
+    "upgrade": b"Upgrade",
+    "via": b"Via",
+    "warning": b"Warning",
 }
 
 STATUS_CODES = {bstr(code): code for code in range(100, 600)}
@@ -238,13 +228,11 @@ class HTTP(object):
 
         for key, value in headers.items():
             try:
-                header, to_bytes = REQUEST_HEADERS[key]
+                header = REQUEST_HEADERS[key]
             except KeyError:
                 raise ValueError("Unknown header %r" % key)
             else:
-                if to_bytes:
-                    value = to_bytes(value)
-                elif not isinstance(value, bytes):
+                if not isinstance(value, bytes):
                     value = bstr(value)
                 self.request_headers[header] = value
 
@@ -313,13 +301,11 @@ class HTTP(object):
         # Other headers
         for key, value in headers.items():
             try:
-                header, to_bytes = REQUEST_HEADERS[key]
+                header = REQUEST_HEADERS[key]
             except KeyError:
                 raise ValueError("Unknown header %r" % key)
             else:
-                if to_bytes:
-                    value = to_bytes(value)
-                elif not isinstance(value, bytes):
+                if not isinstance(value, bytes):
                     value = bstr(value)
                 data += [header, b": ", value, b"\r\n"]
 
@@ -334,7 +320,7 @@ class HTTP(object):
             if content_length == 0:
                 data.append(b"\r\n")
             else:
-                data += [b"Content-Length: ", int_to_bytes(content_length), b"\r\n\r\n", body]
+                data += [b"Content-Length: ", bstr(content_length), b"\r\n\r\n", body]
             self.writable = False
 
         # Send
