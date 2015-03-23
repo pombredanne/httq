@@ -112,6 +112,38 @@ def log(line, colour):
         print("\x1b[3%sm%s\x1b[0m" % (colour, line.decode("ISO-8859-1")))
 
 
+def parse_header_value(value):
+    if value is None:
+        return None, None
+    if not isinstance(value, bytes):
+        value = bstr(value)
+    p = 0
+    delimiter = value.find(b";", p)
+    eol = len(value)
+    if p <= delimiter < eol:
+        string_value = value[p:delimiter]
+        params = {}
+        while delimiter < eol:
+            # Skip whitespace after previous delimiter
+            p = delimiter + 1
+            while p < eol and value[p] == SPACE:
+                p += 1
+            # Find next delimiter
+            delimiter = value.find(b";", p)
+            if delimiter == -1:
+                delimiter = eol
+            # Add parameter
+            eq = value.find(b"=", p)
+            if p <= eq < delimiter:
+                params[value[p:eq]] = value[(eq + 1):delimiter]
+            elif p < delimiter:
+                params[value[p:delimiter]] = None
+    else:
+        string_value = value[p:]
+        params = {}
+    return string_value, params
+
+
 class ConnectionError(IOError):
 
     def __init__(self, *args, **kwargs):
@@ -181,41 +213,15 @@ class HTTP(object):
         line, self._received = received[:eol], received[(eol + 2):]
         return line
 
-    def _parse_header(self, key, value, converter=None):
-        if value is None:
-            self._parsed_response_headers[key] = None
-            return None
-        p = 0
-        delimiter = value.find(b";", p)
-        eol = len(value)
-        if p <= delimiter < eol:
-            string_value = value[p:delimiter]
-            params = {}
-            while delimiter < eol:
-                # Skip whitespace after previous delimiter
-                p = delimiter + 1
-                while value[p] == SPACE:
-                    p += 1
-                # Find next delimiter
-                delimiter = value.find(b";", p)
-                if delimiter == -1:
-                    delimiter = eol
-                # Add parameter
-                eq = value.find(b"=", p)
-                if p <= eq < delimiter:
-                    params[value[p:eq]] = value[eq+1:delimiter]
-                else:
-                    params[value[p:delimiter]] = None
-            if params:
-                self._parsed_response_header_params[key] = params
-        else:
-            string_value = value[p:]
+    def _add_parsed_header(self, key, value, params, converter=None):
         try:
-            parsed_value = converter(string_value)
+            value = converter(value)
         except (TypeError, ValueError):
-            parsed_value = string_value
-        self._parsed_response_headers[key] = parsed_value
-        return parsed_value
+            pass
+        self._parsed_response_headers[key] = value
+        if params:
+            self._parsed_response_header_params[key] = params
+        return value
 
     def connect(self, host, **headers):
         """ Establish a connection to a remote host.
@@ -369,7 +375,6 @@ class HTTP(object):
             self.read()
 
         read_line = self._read_line
-        parse_header = self._parse_header
         raw_headers = self._raw_response_headers
 
         # Status line
@@ -400,11 +405,15 @@ class HTTP(object):
             value = header_line[p:]
             raw_headers[key] = value
             if key == b"content-length":
-                readable = parse_header(key, value, int)
+                header, params = parse_header_value(value)
+                readable = self._add_parsed_header(key, header, params, int)
             elif key == b"connection":
-                parse_header(key, value)
+                header, params = parse_header_value(value)
+                self._add_parsed_header(key, header, params)
             elif key == b"transfer-encoding":
-                chunked = parse_header(key, value) == b"chunked"
+                header, params = parse_header_value(value)
+                self._add_parsed_header(key, header, params)
+                chunked = header == b"chunked"
                 if chunked:
                     readable = True
 
@@ -451,49 +460,36 @@ class HTTP(object):
         name = name.lower()
         return self._raw_response_headers.get(name)
 
+    def _parsed_header(self, name, converter=None):
+        parsed_response_headers = self._parsed_response_headers
+        if name not in parsed_response_headers:
+            header, params = parse_header_value(self._raw_response_headers.get(name))
+            self._add_parsed_header(name, header, params, converter)
+        return parsed_response_headers.get(name)
+
     @property
     def access_control_allow_origin(self):
-        parsed_response_headers = self._parsed_response_headers
-        if b"access-control-allow-origin" not in parsed_response_headers:
-            self._parse_header(b"access-control-allow-origin",
-                               self._raw_response_headers.get(b"access-control-allow-origin"))
-        return parsed_response_headers.get(b"access-control-allow-origin")
+        return self._parsed_header(b"access-control-allow-origin")
 
     @property
     def accept_patch(self):
-        parsed_response_headers = self._parsed_response_headers
-        if b"accept-patch" not in parsed_response_headers:
-            self._parse_header(b"accept-patch", self._raw_response_headers.get(b"accept-patch"))
-        return parsed_response_headers.get(b"accept-patch")
+        return self._parsed_header(b"accept-patch")
 
     @property
     def accept_ranges(self):
-        parsed_response_headers = self._parsed_response_headers
-        if b"accept-ranges" not in parsed_response_headers:
-            self._parse_header(b"accept-ranges", self._raw_response_headers.get(b"accept-ranges"))
-        return parsed_response_headers.get(b"accept-ranges")
+        return self._parsed_header(b"accept-ranges")
 
     @property
     def age(self):
-        parsed_response_headers = self._parsed_response_headers
-        if b"age" not in parsed_response_headers:
-            self._parse_header(b"age", self._raw_response_headers.get(b"age"))
-        return parsed_response_headers.get(b"age")
+        return self._parsed_header(b"age")
 
     @property
     def allow(self):
-        parsed_response_headers = self._parsed_response_headers
-        if b"allow" not in parsed_response_headers:
-            self._parse_header(b"allow",
-                               self._raw_response_headers.get(b"allow"), lambda x: x.split(b","))
-        return parsed_response_headers.get(b"allow")
+        return self._parsed_header(b"allow", lambda x: x.split(b","))
 
     @property
     def cache_control(self):
-        parsed_response_headers = self._parsed_response_headers
-        if b"cache-control" not in parsed_response_headers:
-            self._parse_header(b"cache-control", self._raw_response_headers.get(b"cache-control"))
-        return parsed_response_headers.get(b"cache-control")
+        return self._parsed_header(b"cache-control")
 
     @property
     def connection(self):
@@ -501,167 +497,93 @@ class HTTP(object):
 
     @property
     def content_disposition(self):
-        parsed_response_headers = self._parsed_response_headers
-        if b"content-disposition" not in parsed_response_headers:
-            self._parse_header(b"content-disposition",
-                               self._raw_response_headers.get(b"content-disposition"))
-        return parsed_response_headers.get(b"content-disposition")
+        return self._parsed_header(b"content-disposition")
 
     @property
     def content_encoding(self):
-        parsed_response_headers = self._parsed_response_headers
-        if b"content-encoding" not in parsed_response_headers:
-            self._parse_header(b"content-encoding",
-                               self._raw_response_headers.get(b"content-encoding"))
-        return parsed_response_headers.get(b"content-encoding")
+        return self._parsed_header(b"content-encoding")
 
     @property
     def content_language(self):
-        parsed_response_headers = self._parsed_response_headers
-        if b"content-language" not in parsed_response_headers:
-            self._parse_header(b"content-language",
-                               self._raw_response_headers.get(b"content-language"))
-        return parsed_response_headers.get(b"content-language")
-
+        return self._parsed_header(b"content-language")
     @property
     def content_length(self):
         return self._parsed_response_headers.get(b"content-length")
 
     @property
     def content_location(self):
-        parsed_response_headers = self._parsed_response_headers
-        if b"content-location" not in parsed_response_headers:
-            self._parse_header(b"content-location",
-                               self._raw_response_headers.get(b"content-location"))
-        return parsed_response_headers.get(b"content-location")
-
+        return self._parsed_header(b"content-location")
     @property
     def content_md5(self):
-        parsed_response_headers = self._parsed_response_headers
-        if b"content-md5" not in parsed_response_headers:
-            self._parse_header(b"content-md5", self._raw_response_headers.get(b"content-md5"))
-        return parsed_response_headers.get(b"content-md5")
+        return self._parsed_header(b"content-md5")
 
     @property
     def content_range(self):
-        parsed_response_headers = self._parsed_response_headers
-        if b"content-range" not in parsed_response_headers:
-            self._parse_header(b"content-range", self._raw_response_headers.get(b"content-range"))
-        return parsed_response_headers.get(b"content-range")
+        return self._parsed_header(b"content-range")
 
     @property
     def content_type(self):
-        parsed_response_headers = self._parsed_response_headers
-        if b"content-type" not in parsed_response_headers:
-            self._parse_header(b"content-type", self._raw_response_headers.get(b"content-type"))
-        return parsed_response_headers.get(b"content-type")
+        return self._parsed_header(b"content-type")
 
     @property
     def date(self):
-        parsed_response_headers = self._parsed_response_headers
-        if b"date" not in parsed_response_headers:
-            self._parse_header(b"date", self._raw_response_headers.get(b"date"))
-        return parsed_response_headers.get(b"date")
+        return self._parsed_header(b"date")
 
     @property
     def e_tag(self):
-        parsed_response_headers = self._parsed_response_headers
-        if b"etag" not in parsed_response_headers:
-            self._parse_header(b"etag", self._raw_response_headers.get(b"etag"))
-        return parsed_response_headers.get(b"etag")
+        return self._parsed_header(b"etag")
 
     @property
     def expires(self):
-        parsed_response_headers = self._parsed_response_headers
-        if b"expires" not in parsed_response_headers:
-            self._parse_header(b"expires", self._raw_response_headers.get(b"expires"))
-        return parsed_response_headers.get(b"expires")
+        return self._parsed_header(b"expires")
 
     @property
     def last_modified(self):
-        parsed_response_headers = self._parsed_response_headers
-        if b"last-modified" not in parsed_response_headers:
-            self._parse_header(b"last-modified", self._raw_response_headers.get(b"last-modified"))
-        return parsed_response_headers.get(b"last-modified")
+        return self._parsed_header(b"last-modified")
 
     @property
     def link(self):
-        parsed_response_headers = self._parsed_response_headers
-        if b"link" not in parsed_response_headers:
-            self._parse_header(b"link", self._raw_response_headers.get(b"link"))
-        return parsed_response_headers.get(b"link")
+        return self._parsed_header(b"link")
 
     @property
     def location(self):
-        parsed_response_headers = self._parsed_response_headers
-        if b"location" not in parsed_response_headers:
-            self._parse_header(b"location", self._raw_response_headers.get(b"location"))
-        return parsed_response_headers.get(b"location")
+        return self._parsed_header(b"location")
 
     @property
     def p3p(self):
-        parsed_response_headers = self._parsed_response_headers
-        if b"p3p" not in parsed_response_headers:
-            self._parse_header(b"p3p", self._raw_response_headers.get(b"p3p"))
-        return parsed_response_headers.get(b"p3p")
+        return self._parsed_header(b"p3p")
 
     @property
     def pragma(self):
-        parsed_response_headers = self._parsed_response_headers
-        if b"pragma" not in parsed_response_headers:
-            self._parse_header(b"pragma", self._raw_response_headers.get(b"pragma"))
-        return parsed_response_headers.get(b"pragma")
+        return self._parsed_header(b"pragma")
 
     @property
     def proxy_authenticate(self):
-        parsed_response_headers = self._parsed_response_headers
-        if b"proxy-authenticate" not in parsed_response_headers:
-            self._parse_header(b"proxy-authenticate",
-                               self._raw_response_headers.get(b"proxy-authenticate"))
-        return parsed_response_headers.get(b"proxy-authenticate")
+        return self._parsed_header(b"proxy_authenticate")
 
     @property
     def refresh(self):
-        parsed_response_headers = self._parsed_response_headers
-        if b"refresh" not in parsed_response_headers:
-            self._parse_header(b"refresh", self._raw_response_headers.get(b"refresh"))
-        return parsed_response_headers.get(b"refresh")
+        return self._parsed_header(b"refresh")
 
     @property
     def retry_after(self):
-        parsed_response_headers = self._parsed_response_headers
-        if b"retry-after" not in parsed_response_headers:
-            self._parse_header(b"retry-after", self._raw_response_headers.get(b"retry-after"))
-        return parsed_response_headers.get(b"retry-after")
+        return self._parsed_header(b"retry-after")
 
     @property
     def server(self):
-        parsed_response_headers = self._parsed_response_headers
-        if b"server" not in parsed_response_headers:
-            self._parse_header(b"server", self._raw_response_headers.get(b"server"))
-        return parsed_response_headers.get(b"server")
+        return self._parsed_header(b"server")
 
     @property
     def set_cookie(self):
-        parsed_response_headers = self._parsed_response_headers
-        if b"set-cookie" not in parsed_response_headers:
-            self._parse_header(b"set-cookie", self._raw_response_headers.get(b"set-cookie"))
-        return parsed_response_headers.get(b"set-cookie")
+        return self._parsed_header(b"set-cookie")
 
     @property
     def strict_transport_security(self):
-        parsed_response_headers = self._parsed_response_headers
-        if b"strict-transport-security" not in parsed_response_headers:
-            self._parse_header(b"strict-transport-security",
-                               self._raw_response_headers.get(b"strict-transport-security"))
-        return parsed_response_headers.get(b"strict-transport-security")
+        return self._parsed_header(b"strict-transport-security")
 
     @property
     def trailer(self):
-        parsed_response_headers = self._parsed_response_headers
-        if b"trailer" not in parsed_response_headers:
-            self._parse_header(b"trailer", self._raw_response_headers.get(b"trailer"))
-        return parsed_response_headers.get(b"trailer")
+        return self._parsed_header(b"trailer")
 
     @property
     def transfer_encoding(self):
@@ -669,39 +591,23 @@ class HTTP(object):
 
     @property
     def upgrade(self):
-        parsed_response_headers = self._parsed_response_headers
-        if b"upgrade" not in parsed_response_headers:
-            self._parse_header(b"upgrade", self._raw_response_headers.get(b"upgrade"))
-        return parsed_response_headers.get(b"upgrade")
+        return self._parsed_header(b"upgrade")
 
     @property
     def vary(self):
-        parsed_response_headers = self._parsed_response_headers
-        if b"vary" not in parsed_response_headers:
-            self._parse_header(b"vary", self._raw_response_headers.get(b"vary"))
-        return parsed_response_headers.get(b"vary")
+        return self._parsed_header(b"vary")
 
     @property
     def via(self):
-        parsed_response_headers = self._parsed_response_headers
-        if b"via" not in parsed_response_headers:
-            self._parse_header(b"via", self._raw_response_headers.get(b"via"))
-        return parsed_response_headers.get(b"via")
+        return self._parsed_header(b"via")
 
     @property
     def warning(self):
-        parsed_response_headers = self._parsed_response_headers
-        if b"warning" not in parsed_response_headers:
-            self._parse_header(b"warning", self._raw_response_headers.get(b"warning"))
-        return parsed_response_headers.get(b"warning")
+        return self._parsed_header(b"warning")
 
     @property
     def www_authenticate(self):
-        parsed_response_headers = self._parsed_response_headers
-        if b"www-authenticate" not in parsed_response_headers:
-            self._parse_header(b"www-authenticate",
-                               self._raw_response_headers.get(b"www-authenticate"))
-        return parsed_response_headers.get(b"www-authenticate")
+        return self._parsed_header(b"www-authenticate")
 
     def options(self, url=b"*", body=None, **headers):
         """ Make or initiate an OPTIONS request to the remote host.
