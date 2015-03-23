@@ -445,6 +445,12 @@ class HTTP(object):
         if self.version == b"HTTP/1.0" or self.connection == b"close":
             self.close()
 
+    def header(self, name):
+        if not isinstance(name, bytes):
+            name = bstr(name)
+        name = name.lower()
+        return self._raw_response_headers.get(name)
+
     @property
     def access_control_allow_origin(self):
         parsed_response_headers = self._parsed_response_headers
