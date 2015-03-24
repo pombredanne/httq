@@ -8,7 +8,7 @@ import os
 from httq import HTTP, basic_auth
 
 
-http = HTTP("localhost:7474", authorization=basic_auth("neo4j", "password"))
+http = HTTP("localhost:7474", authorization=basic_auth("neo4j", "password"), x_stream=True, user_agent=b"py2neo/3.0")
 
 try:
     loops = int(os.getenv("LOOPS", "1"))

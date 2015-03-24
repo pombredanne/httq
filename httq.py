@@ -19,6 +19,17 @@ METHODS = {m.decode("UTF-8"): m
            for m in [b"OPTIONS", b"GET", b"HEAD", b"POST", b"PUT", b"DELETE", b"TRACE"]}
 
 
+def barr(s, encoding="ISO-8859-1"):
+    if isinstance(s, bytes):
+        return bytearray(s)
+    elif isinstance(s, bytearray):
+        return s
+    elif isinstance(s, str):
+        return bytearray(s, encoding=encoding)
+    else:
+        return bytearray(str(s), encoding=encoding)
+
+
 if sys.version_info >= (3,):
     SPACE = ord(' ')
 
@@ -32,7 +43,7 @@ if sys.version_info >= (3,):
         else:
             return str(s).encode(encoding)
 
-    def hex_to_bytes(n):
+    def hexb(n):
         return hex(n)[2:].encode("UTF-8")
 
 else:
@@ -46,7 +57,7 @@ else:
         else:
             return bytes(s)
 
-    def hex_to_bytes(n):
+    def hexb(n):
         return hex(n)[2:]
 
 
@@ -54,13 +65,12 @@ def basic_auth(user_id, password):
     return b"Basic " + b64encode(b":".join((bstr(user_id), bstr(password))))
 
 
-def time_to_bytes(value):
+def internet_time(value):
     # TODO
     return bstr(value)
 
 
 REQUEST_HEADERS = {
-    # argument: header
     "accept": b"Accept",
     "accept_charset": b"Accept-Charset",
     "accept_datetime": b"Accept-Datetime",
@@ -69,7 +79,6 @@ REQUEST_HEADERS = {
     "authorization": b"Authorization",
     "cache_control": b"Cache-Control",
     "connection": b"Connection",
-    "content_length": b"Content-Length",
     "content_md5": b"Content-MD5",
     "content_type": b"Content-Type",
     "cookie": b"Cookie",
@@ -132,6 +141,18 @@ def parse_header_value(value):
         string_value = value[p:]
         params = {}
     return string_value, params
+
+
+def header_case(s):
+    b = barr(s)
+    start_of_word = 0
+    for i, ch in enumerate(b):
+        if ch == 95:
+            b[i] = 45
+            start_of_word = i + 1
+        elif i == start_of_word and 97 <= ch <= 122:
+            b[i] -= 32
+    return bstr(b)
 
 
 class ConnectionError(IOError):
@@ -203,14 +224,14 @@ class HTTP(object):
         line, self._received = received[:eol], received[(eol + 2):]
         return line
 
-    def _add_parsed_header(self, key, value, params, converter=None):
+    def _add_parsed_header(self, name, value, params, converter=None):
         try:
             value = converter(value)
         except (TypeError, ValueError):
             pass
-        self._parsed_response_headers[key] = value
+        self._parsed_response_headers[name] = value
         if params:
-            self._parsed_response_header_params[key] = params
+            self._parsed_response_header_params[name] = params
         return value
 
     def connect(self, host, **headers):
@@ -226,15 +247,14 @@ class HTTP(object):
         self.request_headers.clear()
         self.request_headers[b"Host"] = host
 
-        for key, value in headers.items():
+        for name, value in headers.items():
             try:
-                header = REQUEST_HEADERS[key]
+                name = REQUEST_HEADERS[name]
             except KeyError:
-                raise ValueError("Unknown header %r" % key)
-            else:
-                if not isinstance(value, bytes):
-                    value = bstr(value)
-                self.request_headers[header] = value
+                name = header_case(name)
+            if not isinstance(value, bytes):
+                value = bstr(value)
+            self.request_headers[name] = value
 
         # Establish connection
         host, _, port = host.partition(b":")
@@ -299,15 +319,14 @@ class HTTP(object):
             data += [key, b": ", value, b"\r\n"]
 
         # Other headers
-        for key, value in headers.items():
+        for name, value in headers.items():
             try:
-                header = REQUEST_HEADERS[key]
+                name = REQUEST_HEADERS[name]
             except KeyError:
-                raise ValueError("Unknown header %r" % key)
-            else:
-                if not isinstance(value, bytes):
-                    value = bstr(value)
-                data += [header, b": ", value, b"\r\n"]
+                name = header_case(name)
+            if not isinstance(value, bytes):
+                value = bstr(value)
+            data += [name, b": ", value, b"\r\n"]
 
         if body is None:
             # Chunked content
@@ -347,7 +366,7 @@ class HTTP(object):
         for chunk in chunks:
             assert isinstance(chunk, bytes)
             chunk_length = len(chunk)
-            data += [hex_to_bytes(chunk_length), b"\r\n", chunk, b"\r\n"]
+            data += [hexb(chunk_length), b"\r\n", chunk, b"\r\n"]
             if chunk_length == 0:
                 self.writable = False
                 break
