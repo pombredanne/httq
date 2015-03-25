@@ -678,20 +678,69 @@ class Resource(object):
 
     def __init__(self, uri, **headers):
         parsed = urlparse(uri)
-        self.http = HTTP(parsed.netloc, **headers)
-        self.path = bstr(parsed.path)
+        if parsed.scheme == "http":
+            self.http = HTTP(parsed.netloc, **headers)
+            self.path = bstr(parsed.path)
+        else:
+            raise ValueError("Unsupported scheme '%s'" % parsed.scheme)
 
-    def get(self):
+    def get(self, **headers):
         http = self.http
         try:
-            content = http.get(self.path).response().read()
+            content_out = http.get(self.path, **headers).response().read()
         except ConnectionError:
             http.reconnect()
-            content = http.get(self.path).response().read()
+            content_out = http.get(self.path, **headers).response().read()
         if http.content_type == b"application/json":
-            return json.loads(content.decode(http.charset))
+            return json.loads(content_out.decode(http.charset))
         else:
-            return content
+            return content_out
+
+    def put(self, content, **headers):
+        http = self.http
+        if isinstance(content, dict):
+            headers.setdefault(b"Content-Type", b"application/json")
+            content = json.dumps(content, ensure_ascii=True, separators=",:").encode("UTF-8")
+        elif not isinstance(content, bytes):
+            content = bstr(content, "UTF-8")
+        try:
+            content_out = http.put(self.path, content, **headers).response().read()
+        except ConnectionError:
+            http.reconnect()
+            content_out = http.put(self.path, content, **headers).response().read()
+        if http.content_type == b"application/json":
+            return json.loads(content_out.decode(http.charset))
+        else:
+            return content_out
+
+    def post(self, content, **headers):
+        http = self.http
+        if isinstance(content, dict):
+            headers.setdefault(b"Content-Type", b"application/json")
+            content = json.dumps(content, ensure_ascii=True, separators=",:").encode("UTF-8")
+        elif not isinstance(content, bytes):
+            content = bstr(content, "UTF-8")
+        try:
+            content_out = http.post(self.path, content, **headers).response().read()
+        except ConnectionError:
+            http.reconnect()
+            content_out = http.post(self.path, content, **headers).response().read()
+        if http.content_type == b"application/json":
+            return json.loads(content_out.decode(http.charset))
+        else:
+            return content_out
+
+    def delete(self, **headers):
+        http = self.http
+        try:
+            content_out = http.delete(self.path, **headers).response().read()
+        except ConnectionError:
+            http.reconnect()
+            content_out = http.delete(self.path, **headers).response().read()
+        if http.content_type == b"application/json":
+            return json.loads(content_out.decode(http.charset))
+        else:
+            return content_out
 
 
 def main2():
