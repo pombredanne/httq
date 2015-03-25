@@ -200,21 +200,24 @@ class HTTP(object):
             return 0
 
     def _read(self, n):
+        recv = self._recv
         required = n - len(self._received)
         while required > 0:
             if required > DEFAULT_BUFFER_SIZE:
-                required -= self._recv(required)
+                required -= recv(required)
             elif required > 0:
-                required -= self._recv(DEFAULT_BUFFER_SIZE)
+                required -= recv(DEFAULT_BUFFER_SIZE)
         received = self._received
         line, self._received = received[:n], received[n:]
         return line
 
     def _read_line(self):
+        recv = self._recv
         eol = self._received.find(b"\r\n")
         while eol == -1:
             p = len(self._received)
-            self._recv(DEFAULT_BUFFER_SIZE)
+            while recv(DEFAULT_BUFFER_SIZE) == 0:
+                pass
             eol = self._received.find(b"\r\n", p)
         received = self._received
         line, self._received = received[:eol], received[(eol + 2):]
