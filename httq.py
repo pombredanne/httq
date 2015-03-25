@@ -107,11 +107,6 @@ REQUEST_HEADERS = {
 STATUS_CODES = {bstr(code): code for code in range(100, 600)}
 
 
-def log(line, colour):
-    if __debug__:
-        print("\x1b[3%sm%s\x1b[0m" % (colour, line.decode("ISO-8859-1")))
-
-
 def parse_header_value(value):
     if value is None:
         return None, None
@@ -241,9 +236,6 @@ class HTTP(object):
         if not isinstance(host, bytes):
             host = bstr(host)
 
-        if __debug__:
-            log(b"Connecting to " + host, 1)
-
         # Reset connection attributes and headers
         self.request_headers.clear()
         self.request_headers[b"Host"] = host
@@ -270,16 +262,14 @@ class HTTP(object):
 
     def reconnect(self):
         host = self.host
-        headers = self.request_headers
+        headers = dict(self.request_headers)
         self.close()
-        self.connect(host, **headers)
+        self.connect(host)
+        self.request_headers.update(headers)
 
     def close(self):
         """ Close the current connection.
         """
-        if __debug__:
-            log(b"Closing connection", 1)
-
         if self.socket:
             self.socket.close()
             self.socket = None
@@ -349,10 +339,6 @@ class HTTP(object):
             self.socket.sendall(joined)
         except socket.error:
             raise ConnectionError("Peer has closed connection")
-        else:
-            if __debug__:
-                for i, line in enumerate(b"".join(data)[:-2].split(b"\r\n")):
-                    log(line, 6 if i == 0 else 4)
 
         return self
 
@@ -385,7 +371,6 @@ class HTTP(object):
 
         # Status line
         status_line = read_line()
-        log(status_line, 6)
         p = status_line.find(b" ")
         self.version = status_line[:p]
         p += 1
@@ -400,7 +385,6 @@ class HTTP(object):
         raw_headers.clear()
         while True:
             header_line = read_line()
-            log(header_line, 4)
             if header_line == b"":
                 break
             delimiter = header_line.find(b":")
