@@ -4,6 +4,7 @@
 
 from base64 import b64encode
 from io import DEFAULT_BUFFER_SIZE
+import json
 from select import select
 import socket
 import sys
@@ -473,6 +474,20 @@ class HTTP(object):
         return parsed_response_headers.get(name)
 
     @property
+    def charset(self):
+        try:
+            charset = self._parsed_response_header_params.get(b"content-type").get(b"charset")
+        except KeyError:
+            charset = None
+        if charset:
+            if isinstance(charset, str):
+                return charset
+            else:
+                return charset.decode("ISO-8859-1")
+        else:
+            return "ISO-8859-1"
+
+    @property
     def access_control_allow_origin(self):
         return self._parsed_header(b"access-control-allow-origin")
 
@@ -673,6 +688,26 @@ class HTTP(object):
         :param body:
         """
         return self.request(b"TRACE", url, body, **headers)
+
+
+class Resource(object):
+
+    def __init__(self, uri, **headers):
+        parsed = urlparse(uri)
+        self.http = HTTP(parsed.netloc, **headers)
+        self.path = bstr(parsed.path)
+
+    def get(self):
+        http = self.http
+        try:
+            content = http.get(self.path).response().read()
+        except ConnectionError:
+            http.reconnect()
+            content = http.get(self.path).response().read()
+        if http.content_type == b"application/json":
+            return json.loads(content.decode(http.charset))
+        else:
+            return content
 
 
 def main2():
