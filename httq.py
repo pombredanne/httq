@@ -151,7 +151,7 @@ class ConnectionError(IOError):
 class HTTP(object):
 
     # Connection attributes
-    socket = None
+    _socket = None
 
     # Request attributes
     request_headers = {}
@@ -176,7 +176,7 @@ class HTTP(object):
             pass
 
     def _recv(self, n):
-        s = self.socket
+        s = self._socket
         ready_to_read, _, _ = select((s,), (), (), 0)
         if ready_to_read:
             data = s.recv(n)
@@ -238,7 +238,7 @@ class HTTP(object):
         else:
             port = DEFAULT_PORT
 
-        self.socket = socket.create_connection((host, port))
+        self._socket = socket.create_connection((host, port))
         self._received = b""
 
     def reconnect(self):
@@ -251,9 +251,9 @@ class HTTP(object):
     def close(self):
         """ Close the current connection.
         """
-        if self.socket:
-            self.socket.close()
-            self.socket = None
+        if self._socket:
+            self._socket.close()
+            self._socket = None
         self._received = b""
 
         self.request_headers.clear()
@@ -316,7 +316,7 @@ class HTTP(object):
         # Send
         try:
             joined = b"".join(data)
-            self.socket.sendall(joined)
+            self._socket.sendall(joined)
         except socket.error:
             raise ConnectionError("Peer has closed connection")
 
@@ -398,7 +398,7 @@ class HTTP(object):
                 self.writable = False
                 break
         joined = b"".join(data)
-        self.socket.sendall(joined)
+        self._socket.sendall(joined)
 
         return self
 
