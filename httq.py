@@ -444,7 +444,7 @@ class HTTP(object):
                     chunked = True
 
         if not (content_length or chunked):
-            self.finish()
+            self._finish()
 
         self._content_length = content_length
         self._chunked = chunked
@@ -472,11 +472,11 @@ class HTTP(object):
 
         self._content_length = None
         self._chunked = False
-        self.finish()
+        self._finish()
 
         return content
 
-    def finish(self):
+    def _finish(self):
         if self.version == b"HTTP/1.0":
             connection = self.response_headers.get(b"Connection", b"close")
         else:
