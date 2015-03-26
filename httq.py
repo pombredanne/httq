@@ -107,7 +107,7 @@ REQUEST_HEADERS = {
 STATUS_CODES = {bstr(code): code for code in range(100, 600)}
 
 
-def parse_header_value(value):
+def parse_header(value):
     if value is None:
         return None, None
     if not isinstance(value, bytes):
@@ -139,18 +139,6 @@ def parse_header_value(value):
     return string_value, params
 
 
-def header_case(s):
-    b = barr(s)
-    start_of_word = 0
-    for i, ch in enumerate(b):
-        if ch == 95:
-            b[i] = 45
-            start_of_word = i + 1
-        elif i == start_of_word and 97 <= ch <= 122:
-            b[i] -= 32
-    return bstr(b)
-
-
 class ConnectionError(IOError):
 
     def __init__(self, *args, **kwargs):
@@ -160,22 +148,20 @@ class ConnectionError(IOError):
 class HTTP(object):
 
     # Connection attributes
-    connected = False
     socket = None
 
     # Request attributes
     request_headers = {}
+    writable = False
 
     # Response attributes
     _received = b""
     version = None
     status_code = None
     reason_phrase = None
-    _raw_response_headers = {}
-    _parsed_response_headers = {}
-    _parsed_response_header_params = {}
-    readable = False
-    writable = False
+    response_headers = {}
+    _content_length = None
+    _chunked = None
 
     def __init__(self, host, **headers):
         self.connect(host, **headers)
@@ -223,16 +209,6 @@ class HTTP(object):
         line, self._received = received[:eol], received[(eol + 2):]
         return line
 
-    def _add_parsed_header(self, name, value, params, converter=None):
-        try:
-            value = converter(value)
-        except (TypeError, ValueError):
-            pass
-        self._parsed_response_headers[name] = value
-        if params:
-            self._parsed_response_header_params[name] = params
-        return value
-
     def connect(self, host, **headers):
         """ Establish a connection to a remote host.
         """
@@ -247,7 +223,7 @@ class HTTP(object):
             try:
                 name = REQUEST_HEADERS[name]
             except KeyError:
-                name = header_case(name)
+                name = bstr(name).replace(b"_", b"-").title()
             if not isinstance(value, bytes):
                 value = bstr(value)
             self.request_headers[name] = value
@@ -261,7 +237,6 @@ class HTTP(object):
 
         self.socket = socket.create_connection((host, port))
         self._received = b""
-        self.connected = True
 
     def reconnect(self):
         host = self.host
@@ -277,7 +252,6 @@ class HTTP(object):
             self.socket.close()
             self.socket = None
         self._received = b""
-        self.connected = False
 
         self.request_headers.clear()
 
@@ -317,7 +291,7 @@ class HTTP(object):
             try:
                 name = REQUEST_HEADERS[name]
             except KeyError:
-                name = header_case(name)
+                name = bstr(name).replace(b"_", b"-").title()
             if not isinstance(value, bytes):
                 value = bstr(value)
             data += [name, b": ", value, b"\r\n"]
@@ -344,277 +318,6 @@ class HTTP(object):
             raise ConnectionError("Peer has closed connection")
 
         return self
-
-    def write(self, *chunks):
-        """ Write one or more chunks of request data to the remote host.
-
-        :param chunks:
-        """
-        assert self.writable, "No chunked request sent"
-
-        data = []
-        for chunk in chunks:
-            assert isinstance(chunk, bytes)
-            chunk_length = len(chunk)
-            data += [hexb(chunk_length), b"\r\n", chunk, b"\r\n"]
-            if chunk_length == 0:
-                self.writable = False
-                break
-        joined = b"".join(data)
-        self.socket.sendall(joined)
-
-        return self
-
-    def response(self):
-        if self.readable:
-            self.read()
-
-        read_line = self._read_line
-        raw_headers = self._raw_response_headers
-
-        # Status line
-        status_line = read_line()
-        p = status_line.find(b" ")
-        self.version = status_line[:p]
-        p += 1
-        q = status_line.find(b" ", p)
-        status_code = STATUS_CODES[status_line[p:q]]  # faster than using the int function
-        self.status_code = status_code
-        self.reason_phrase = status_line[(q + 1):]
-
-        # Headers
-        readable = status_code != 204
-        self._parsed_response_headers.clear()
-        raw_headers.clear()
-        while True:
-            header_line = read_line()
-            if header_line == b"":
-                break
-            delimiter = header_line.find(b":")
-            key = header_line[:delimiter].lower()
-            p = delimiter + 1
-            while header_line[p] == SPACE:
-                p += 1
-            value = header_line[p:]
-            raw_headers[key] = value
-            if key == b"content-length":
-                header, params = parse_header_value(value)
-                readable = self._add_parsed_header(key, header, params, int)
-            elif key == b"connection":
-                header, params = parse_header_value(value)
-                self._add_parsed_header(key, header, params)
-            elif key == b"transfer-encoding":
-                header, params = parse_header_value(value)
-                self._add_parsed_header(key, header, params)
-                chunked = header == b"chunked"
-                if chunked:
-                    readable = True
-
-        if not readable:
-            self.finish()
-
-        self.readable = readable
-
-        return self
-
-    def read(self):
-        assert self.readable, "No content available to read"
-
-        # Try sized
-        content_length = self.content_length
-        read = self._read
-        read_line = self._read_line
-        if content_length == 0:
-            content = b""
-        elif content_length:
-            content = read(content_length)
-        else:
-            # Assume chunked
-            chunks = []
-            chunk_size = -1
-            while chunk_size != 0:
-                chunk_size = int(read_line(), 16)
-                chunks.append(read(chunk_size))
-                read(2)
-            content = b"".join(chunks)
-
-        self.readable = None
-        self.finish()
-
-        return content
-
-    def finish(self):
-        if self.version == b"HTTP/1.0" or self.connection == b"close":
-            self.close()
-
-    def header(self, name):
-        if not isinstance(name, bytes):
-            name = bstr(name)
-        name = name.lower()
-        return self._raw_response_headers.get(name)
-
-    def _parsed_header(self, name, converter=None):
-        parsed_response_headers = self._parsed_response_headers
-        if name not in parsed_response_headers:
-            header, params = parse_header_value(self._raw_response_headers.get(name))
-            self._add_parsed_header(name, header, params, converter)
-        return parsed_response_headers.get(name)
-
-    @property
-    def charset(self):
-        try:
-            charset = self._parsed_response_header_params.get(b"content-type").get(b"charset")
-        except KeyError:
-            charset = None
-        if charset:
-            if isinstance(charset, str):
-                return charset
-            else:
-                return charset.decode("ISO-8859-1")
-        else:
-            return "ISO-8859-1"
-
-    @property
-    def access_control_allow_origin(self):
-        return self._parsed_header(b"access-control-allow-origin")
-
-    @property
-    def accept_patch(self):
-        return self._parsed_header(b"accept-patch")
-
-    @property
-    def accept_ranges(self):
-        return self._parsed_header(b"accept-ranges")
-
-    @property
-    def age(self):
-        return self._parsed_header(b"age")
-
-    @property
-    def allow(self):
-        return self._parsed_header(b"allow", lambda x: x.split(b","))
-
-    @property
-    def cache_control(self):
-        return self._parsed_header(b"cache-control")
-
-    @property
-    def connection(self):
-        return self._parsed_response_headers.get(b"connection")
-
-    @property
-    def content_disposition(self):
-        return self._parsed_header(b"content-disposition")
-
-    @property
-    def content_encoding(self):
-        return self._parsed_header(b"content-encoding")
-
-    @property
-    def content_language(self):
-        return self._parsed_header(b"content-language")
-    @property
-    def content_length(self):
-        return self._parsed_response_headers.get(b"content-length")
-
-    @property
-    def content_location(self):
-        return self._parsed_header(b"content-location")
-    @property
-    def content_md5(self):
-        return self._parsed_header(b"content-md5")
-
-    @property
-    def content_range(self):
-        return self._parsed_header(b"content-range")
-
-    @property
-    def content_type(self):
-        return self._parsed_header(b"content-type")
-
-    @property
-    def date(self):
-        return self._parsed_header(b"date")
-
-    @property
-    def e_tag(self):
-        return self._parsed_header(b"etag")
-
-    @property
-    def expires(self):
-        return self._parsed_header(b"expires")
-
-    @property
-    def last_modified(self):
-        return self._parsed_header(b"last-modified")
-
-    @property
-    def link(self):
-        return self._parsed_header(b"link")
-
-    @property
-    def location(self):
-        return self._parsed_header(b"location")
-
-    @property
-    def p3p(self):
-        return self._parsed_header(b"p3p")
-
-    @property
-    def pragma(self):
-        return self._parsed_header(b"pragma")
-
-    @property
-    def proxy_authenticate(self):
-        return self._parsed_header(b"proxy_authenticate")
-
-    @property
-    def refresh(self):
-        return self._parsed_header(b"refresh")
-
-    @property
-    def retry_after(self):
-        return self._parsed_header(b"retry-after")
-
-    @property
-    def server(self):
-        return self._parsed_header(b"server")
-
-    @property
-    def set_cookie(self):
-        return self._parsed_header(b"set-cookie")
-
-    @property
-    def strict_transport_security(self):
-        return self._parsed_header(b"strict-transport-security")
-
-    @property
-    def trailer(self):
-        return self._parsed_header(b"trailer")
-
-    @property
-    def transfer_encoding(self):
-        return self._parsed_response_headers.get(b"transfer-encoding")
-
-    @property
-    def upgrade(self):
-        return self._parsed_header(b"upgrade")
-
-    @property
-    def vary(self):
-        return self._parsed_header(b"vary")
-
-    @property
-    def via(self):
-        return self._parsed_header(b"via")
-
-    @property
-    def warning(self):
-        return self._parsed_header(b"warning")
-
-    @property
-    def www_authenticate(self):
-        return self._parsed_header(b"www-authenticate")
 
     def options(self, url=b"*", body=None, **headers):
         """ Make or initiate an OPTIONS request to the remote host.
@@ -676,6 +379,108 @@ class HTTP(object):
         """
         return self.request(b"TRACE", url, body, **headers)
 
+    def write(self, *chunks):
+        """ Write one or more chunks of request data to the remote host.
+
+        :param chunks:
+        """
+        assert self.writable, "No chunked request sent"
+
+        data = []
+        for chunk in chunks:
+            assert isinstance(chunk, bytes)
+            chunk_length = len(chunk)
+            data += [hexb(chunk_length), b"\r\n", chunk, b"\r\n"]
+            if chunk_length == 0:
+                self.writable = False
+                break
+        joined = b"".join(data)
+        self.socket.sendall(joined)
+
+        return self
+
+    def response(self):
+        if self._content_length or self._chunked:
+            self.read()
+
+        read_line = self._read_line
+        headers = self.response_headers
+
+        # Status line
+        status_line = read_line()
+        p = status_line.find(b" ")
+        self.version = status_line[:p]
+        p += 1
+        q = status_line.find(b" ", p)
+        status_code = STATUS_CODES[status_line[p:q]]  # faster than using the int function
+        self.status_code = status_code
+        self.reason_phrase = status_line[(q + 1):]
+
+        # Headers
+        headers.clear()
+        content_length = None
+        chunked = False
+        while True:
+            header_line = read_line()
+            if header_line == b"":
+                break
+            delimiter = header_line.find(b":")
+            key = header_line[:delimiter].title()
+            p = delimiter + 1
+            while header_line[p] == SPACE:
+                p += 1
+            value = header_line[p:]
+            headers[key] = value
+            if key == b"Content-Length":
+                try:
+                    content_length = int(value)
+                except (TypeError, ValueError):
+                    pass
+            elif key == b"Transfer-Encoding":
+                if value == b"chunked":
+                    chunked = True
+
+        if not (content_length or chunked):
+            self.finish()
+
+        self._content_length = content_length
+        self._chunked = chunked
+
+        return self
+
+    def read(self):
+        read = self._read
+        read_line = self._read_line
+
+        if self._chunked:
+            chunks = []
+            chunk_size = -1
+            while chunk_size != 0:
+                chunk_size = int(read_line(), 16)
+                chunks.append(read(chunk_size))
+                read(2)
+            content = b"".join(chunks)
+
+        elif self._content_length:
+            content = read(self._content_length)
+
+        else:
+            content = None
+
+        self._content_length = None
+        self._chunked = False
+        self.finish()
+
+        return content
+
+    def finish(self):
+        if self.version == b"HTTP/1.0":
+            connection = self.response_headers.get(b"Connection", b"close")
+        else:
+            connection = self.response_headers.get(b"Connection", b"keep-alive")
+        if connection == b"close":
+            self.close()
+
 
 class Resource(object):
 
@@ -694,8 +499,10 @@ class Resource(object):
         except ConnectionError:
             http.reconnect()
             content_out = http.get(self.path, **headers).response().read()
-        if http.content_type == b"application/json":
-            return json.loads(content_out.decode(http.charset))
+        content_type, content_type_params = parse_header(http.response_headers.get(b"Content-Type"))
+        if content_type == b"application/json":
+            charset = content_type_params.get(b"charset", "ISO-8859-1")
+            return json.loads(content_out.decode(charset))
         else:
             return content_out
 
@@ -711,8 +518,10 @@ class Resource(object):
         except ConnectionError:
             http.reconnect()
             content_out = http.put(self.path, content, **headers).response().read()
-        if http.content_type == b"application/json":
-            return json.loads(content_out.decode(http.charset))
+        content_type, content_type_params = parse_header(http.response_headers.get(b"Content-Type"))
+        if content_type == b"application/json":
+            charset = content_type_params.get(b"charset", "ISO-8859-1")
+            return json.loads(content_out.decode(charset))
         else:
             return content_out
 
@@ -728,8 +537,10 @@ class Resource(object):
         except ConnectionError:
             http.reconnect()
             content_out = http.post(self.path, content, **headers).response().read()
-        if http.content_type == b"application/json":
-            return json.loads(content_out.decode(http.charset))
+        content_type, content_type_params = parse_header(http.response_headers.get(b"Content-Type"))
+        if content_type == b"application/json":
+            charset = content_type_params.get(b"charset", "ISO-8859-1")
+            return json.loads(content_out.decode(charset))
         else:
             return content_out
 
@@ -740,8 +551,10 @@ class Resource(object):
         except ConnectionError:
             http.reconnect()
             content_out = http.delete(self.path, **headers).response().read()
-        if http.content_type == b"application/json":
-            return json.loads(content_out.decode(http.charset))
+        content_type, content_type_params = parse_header(http.response_headers.get(b"Content-Type"))
+        if content_type == b"application/json":
+            charset = content_type_params.get(b"charset", "ISO-8859-1")
+            return json.loads(content_out.decode(charset))
         else:
             return content_out
 
