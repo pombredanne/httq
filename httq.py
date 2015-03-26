@@ -34,17 +34,6 @@ METHODS = {m.decode("UTF-8"): m
            for m in [b"OPTIONS", b"GET", b"HEAD", b"POST", b"PUT", b"DELETE", b"TRACE"]}
 
 
-def barr(s, encoding="ISO-8859-1"):
-    if isinstance(s, bytes):
-        return bytearray(s)
-    elif isinstance(s, bytearray):
-        return s
-    elif isinstance(s, str):
-        return bytearray(s, encoding=encoding)
-    else:
-        return bytearray(str(s), encoding=encoding)
-
-
 if sys.version_info >= (3,):
     SPACE = ord(' ')
 
