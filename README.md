@@ -71,5 +71,6 @@ response_headers
 version
 status_code
 reason_phrase
+readable
 read
 ```

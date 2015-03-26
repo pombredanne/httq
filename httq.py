@@ -451,7 +451,13 @@ class HTTP(object):
 
         return self
 
+    @property
+    def readable(self):
+        return self._content_length or self._chunked
+
     def read(self):
+        assert self.readable, "No content to read"
+
         read = self._read
         read_line = self._read_line
 
