@@ -1,10 +1,12 @@
 # HTTQ
 
 HTTQ is a fast and lightweight HTTP client written in pure Python.
-It no dependencies outside the standard library and exists as a single module that can be dropped into an existing project.
+It has no dependencies outside the standard library and exists as a single module that can be dropped into an existing project.
 
-The lowest level API provided by HTTQ is the `HTTP` class.
-To create an instance of this class, only a host value needs to be provided:
+## HTTP
+
+The lowest level API provided by HTTQ is the `HTTP` class which provides methods to send requests and receive responses.
+To create an instance of this class, pass a host value to the constructor:
 
 ```python
 from httq import HTTP
@@ -34,3 +36,5 @@ The `get` method returns the `HTTP` instance itself so these methods can be easi
 ```python
 content = http.get(b"/foo").response().read()
 ```
+
+## Resource
