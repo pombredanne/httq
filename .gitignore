@@ -2,5 +2,8 @@
 *.py[co]
 __pycache__
 
+# PyCharm
 .idea
 
+# Sphinx
+www/_build

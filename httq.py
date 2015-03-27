@@ -149,22 +149,26 @@ class ConnectionError(IOError):
 
 
 class HTTP(object):
+    """ Low-level HTTP client providing access to raw request and response functions.
+    """
 
-    # Connection attributes
     _socket = None
-
-    # Request attributes
-    request_headers = {}
-    writable = False
-
-    # Response attributes
     _received = b""
-    version = None
-    status_code = None
-    reason_phrase = None
-    response_headers = {}
     _content_length = None
     _chunked = None
+
+    #: Headers to be sent with each request
+    request_headers = {}
+    #: Boolean flag indicating whether a chunked request is currently being written.
+    writable = False
+    #: HTTP version from last response
+    version = None
+    #: Status code from last response
+    status_code = None
+    #: Reason phrase from last response
+    reason_phrase = None
+    #: Headers from last response
+    response_headers = {}
 
     def __init__(self, host, **headers):
         self.connect(host, **headers)
@@ -242,6 +246,8 @@ class HTTP(object):
         self._received = b""
 
     def reconnect(self):
+        """ Re-establish a connection to the same remote host.
+        """
         host = self.host
         headers = dict(self.request_headers)
         self.close()
@@ -260,6 +266,8 @@ class HTTP(object):
 
     @property
     def host(self):
+        """ The remote host to which this client is connected.
+        """
         return self.request_headers[b"Host"]
 
     def request(self, method, url, body=None, **headers):
@@ -453,9 +461,13 @@ class HTTP(object):
 
     @property
     def readable(self):
+        """ Boolean indicating whether response content is currently available to read.
+        """
         return self._content_length or self._chunked
 
     def read(self):
+        """ Read and return all available response content.
+        """
         assert self.readable, "No content to read"
 
         read = self._read
@@ -466,7 +478,8 @@ class HTTP(object):
             chunk_size = -1
             while chunk_size != 0:
                 chunk_size = int(read_line(), 16)
-                chunks.append(read(chunk_size))
+                if chunk_size != 0:
+                    chunks.append(read(chunk_size))
                 read(2)
             content = b"".join(chunks)
 
