@@ -281,10 +281,33 @@ class HTTP(object):
     def request(self, method, url, body=None, **headers):
         """ Make or initiate a request to the remote host.
 
-        :param method:
-        :param url:
-        :param body:
+        For simple (non-chunked) requests, pass the `method`, `url` and
+        `body` plus any extra `headers`, if required. An empty body can
+        be specified by passing :code:`b''` as the `body` argument::
+
+        >>> http.request(b'GET', '/foo/1', b'')
+
+        >>> http.request(b'POST', '/foo/', b'{"foo": "bar"}', content_type=b'application/json')
+
+        Chunked requests can be initiated by passing :const:`None` to
+        the `body` argument (either explicitly or using hte default
+        value) and following the :func:`request` with one or more
+        :func:`write` operations::
+
+        >>> http.request(b'POST', '/foo/')
+        >>> http.write(b'data chunk 1')
+        >>> http.write(b'data chunk 2')
+        >>> http.write(b'')
+
+        :param method: request method, e.g. :code:`b'GET'`
+        :type method: bytes
+        :param url: relative URL for this request
+        :type url: bytes
+        :param body: the byte content to send with this request
+                     or :const:`None` for separate, chunked data
+        :type body: bytes
         :param headers:
+        :type headers: bytes
         """
         if not isinstance(method, bytes):
             try:
@@ -342,8 +365,11 @@ class HTTP(object):
         """ Make or initiate an OPTIONS request to the remote host.
 
         :param url:
-        :param headers:
+        :type url: bytes
         :param body:
+        :type body: bytes
+        :param headers:
+        :type headers: bytes
         """
         return self.request(b"OPTIONS", url, body, **headers)
 
