@@ -150,6 +150,9 @@ class ConnectionError(IOError):
 
 class HTTP(object):
     """ Low-level HTTP client providing access to raw request and response functions.
+
+    :param host:
+    :param headers:
     """
 
     _socket = None
@@ -218,6 +221,11 @@ class HTTP(object):
 
     def connect(self, host, **headers):
         """ Establish a connection to a remote host.
+
+        :param host: the host to which to connect
+        :type host: bytes
+        :param headers: headers to pass into each request for this connection
+        :type headers: bytes
         """
         if not isinstance(host, bytes):
             host = bstr(host)
