@@ -21,7 +21,7 @@ body = json.dumps({"statements": [{"statement": "RETURN 1"}]}, ensure_ascii=True
 def query():
     http.post(b"/db/data/transaction/commit", body, content_type=b"application/json")
     if http.response().status_code == 200:
-        raw = http.read()
+        raw = http.content
         if loops == 1:
             print(raw)
             content = json.loads(raw.decode("UTF-8"))

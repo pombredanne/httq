@@ -172,6 +172,8 @@ class HTTP(object):
     reason_phrase = None
     #: Headers from last response
     response_headers = {}
+    #: Content from last response
+    _content = None
 
     def __init__(self, host, **headers):
         self.connect(host, **headers)
@@ -490,6 +492,7 @@ class HTTP(object):
 
         self._content_length = content_length
         self._chunked = chunked
+        self._content = b""
 
         return self
 
@@ -515,19 +518,22 @@ class HTTP(object):
                 if chunk_size != 0:
                     chunks.append(read(chunk_size))
                 read(2)
-            content = b"".join(chunks)
+            self._content = b"".join(chunks)
 
         elif self._content_length:
-            content = read(self._content_length)
-
-        else:
-            content = None
+            self._content = read(self._content_length)
 
         self._content_length = None
         self._chunked = False
         self._finish()
 
-        return content
+        return self._content
+
+    @property
+    def content(self):
+        if self.readable:
+            self.read()
+        return self._content
 
     def _finish(self):
         if self.version == b"HTTP/1.0":
