@@ -27,6 +27,11 @@ try:
 except ImportError:
     from urlparse import urlparse
 
+try:
+    from bs4 import BeautifulSoup
+except ImportError:
+    BeautifulSoup = None
+
 
 DEFAULT_PORT = 80
 
@@ -546,6 +551,8 @@ class HTTP(object):
 
     @property
     def headers(self):
+        """ Headers from the last response.
+        """
         return self._response_headers
 
     def _parse_content_type(self):
@@ -560,23 +567,31 @@ class HTTP(object):
 
     @property
     def content_type(self):
+        """ Content type of the last response.
+        """
         if self._content_type is None:
             self._parse_content_type()
         return self._content_type
 
     @property
     def encoding(self):
+        """ Character encoding for the last response.
+        """
         if self._encoding is None:
             self._parse_content_type()
         return self._encoding
 
     @property
     def content(self):
+        """ Full, typed content from the last response.
+        """
         if self.readable:
             self.read()
         if self._typed_content is None:
             content_type = self.content_type
-            if content_type.startswith("text/"):
+            if content_type == "text/html" and BeautifulSoup:
+                self._typed_content = BeautifulSoup(self._content)
+            elif content_type.startswith("text/"):
                 self._typed_content = self._content.decode(self.encoding)
             elif content_type == "application/json":
                 self._typed_content = json.loads(self._content.decode(self.encoding))
@@ -613,37 +628,27 @@ class Resource(object):
 
     def put(self, content, **headers):
         http = self.http
-        if isinstance(content, dict):
-            headers.setdefault(b"Content-Type", b"application/json")
-            content = json.dumps(content, ensure_ascii=True, separators=",:").encode("UTF-8")
-        elif not isinstance(content, bytes):
-            content = bstr(content, "UTF-8")
         try:
-            return http.put(self.path, content, **headers).response().read()
+            return http.put(self.path, content, **headers).response().content
         except ConnectionError:
             http.reconnect()
-            return http.put(self.path, content, **headers).response().read()
+            return http.put(self.path, content, **headers).response().content
 
     def post(self, content, **headers):
         http = self.http
-        if isinstance(content, dict):
-            headers.setdefault(b"Content-Type", b"application/json")
-            content = json.dumps(content, ensure_ascii=True, separators=",:").encode("UTF-8")
-        elif not isinstance(content, bytes):
-            content = bstr(content, "UTF-8")
         try:
-            return http.post(self.path, content, **headers).response().read()
+            return http.post(self.path, content, **headers).response().content
         except ConnectionError:
             http.reconnect()
-            return http.post(self.path, content, **headers).response().read()
+            return http.post(self.path, content, **headers).response().content
 
     def delete(self, **headers):
         http = self.http
         try:
-            return http.delete(self.path, **headers).response().read()
+            return http.delete(self.path, **headers).response().content
         except ConnectionError:
             http.reconnect()
-            return http.delete(self.path, **headers).response().read()
+            return http.delete(self.path, **headers).response().content
 
 
 def main2():
