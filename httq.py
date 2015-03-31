@@ -152,6 +152,7 @@ class HTTP(object):
     """ Low-level HTTP client providing access to raw request and response functions.
 
     :param host:
+    :type host: bytes
     :param headers:
     """
 
@@ -159,9 +160,13 @@ class HTTP(object):
     _received = b""
     _content_length = None
     _chunked = None
+    _content = b""
+    _content_type = None
+    _encoding = None
+    _typed_content = None
+    _request_headers = {}
+    _response_headers = {}
 
-    #: Headers to be sent with each request
-    request_headers = {}
     #: Boolean flag indicating whether a chunked request is currently being written.
     writable = False
     #: HTTP version from last response
@@ -169,11 +174,7 @@ class HTTP(object):
     #: Status code from last response
     status_code = None
     #: Reason phrase from last response
-    reason_phrase = None
-    #: Headers from last response
-    response_headers = {}
-    #: Content from last response
-    _content = None
+    reason = None
 
     def __init__(self, host, **headers):
         self.connect(host, **headers)
@@ -227,14 +228,13 @@ class HTTP(object):
         :param host: the host to which to connect
         :type host: bytes
         :param headers: headers to pass into each request for this connection
-        :type headers: bytes
         """
         if not isinstance(host, bytes):
             host = bstr(host)
 
         # Reset connection attributes and headers
-        self.request_headers.clear()
-        self.request_headers[b"Host"] = host
+        self._request_headers.clear()
+        self._request_headers[b"Host"] = host
 
         for name, value in headers.items():
             try:
@@ -243,7 +243,7 @@ class HTTP(object):
                 name = bstr(name).replace(b"_", b"-").title()
             if not isinstance(value, bytes):
                 value = bstr(value)
-            self.request_headers[name] = value
+            self._request_headers[name] = value
 
         # Establish connection
         host, _, port = host.partition(b":")
@@ -259,10 +259,10 @@ class HTTP(object):
         """ Re-establish a connection to the same remote host.
         """
         host = self.host
-        headers = dict(self.request_headers)
+        headers = dict(self._request_headers)
         self.close()
         self.connect(host)
-        self.request_headers.update(headers)
+        self._request_headers.update(headers)
 
     def close(self):
         """ Close the current connection.
@@ -272,13 +272,13 @@ class HTTP(object):
             self._socket = None
         self._received = b""
 
-        self.request_headers.clear()
+        self._request_headers.clear()
 
     @property
     def host(self):
         """ The remote host to which this client is connected.
         """
-        return self.request_headers[b"Host"]
+        return self._request_headers[b"Host"]
 
     def request(self, method, url, body=None, **headers):
         """ Make or initiate a request to the remote host.
@@ -309,7 +309,6 @@ class HTTP(object):
                      or :const:`None` for separate, chunked data
         :type body: bytes
         :param headers:
-        :type headers: bytes
         """
         if not isinstance(method, bytes):
             try:
@@ -327,7 +326,7 @@ class HTTP(object):
         data = [method, b" ", url, b" HTTP/1.1\r\n"]
 
         # Common headers
-        for key, value in self.request_headers.items():
+        for key, value in self._request_headers.items():
             data += [key, b": ", value, b"\r\n"]
 
         # Other headers
@@ -344,9 +343,14 @@ class HTTP(object):
             # Chunked content
             data.append(b"Transfer-Encoding: chunked\r\n\r\n")
             self.writable = True
+
         else:
             # Fixed-length content
-            assert isinstance(body, bytes)
+            if isinstance(body, dict):
+                data += [b"Content-Type: application/json\r\n"]
+                body = json.dumps(body, ensure_ascii=True, separators=",:").encode("UTF-8")
+            elif not isinstance(body, bytes):
+                body = bstr(bytes)
             content_length = len(body)
             if content_length == 0:
                 data.append(b"\r\n")
@@ -371,7 +375,6 @@ class HTTP(object):
         :param body:
         :type body: bytes
         :param headers:
-        :type headers: bytes
         """
         return self.request(b"OPTIONS", url, body, **headers)
 
@@ -379,6 +382,7 @@ class HTTP(object):
         """ Make a GET request to the remote host.
 
         :param url:
+        :type url: bytes
         :param headers:
         """
         return self.request(b"GET", url, b"", **headers)
@@ -387,6 +391,7 @@ class HTTP(object):
         """ Make a HEAD request to the remote host.
 
         :param url:
+        :type url: bytes
         :param headers:
         """
         return self.request(b"HEAD", url, b"", **headers)
@@ -395,8 +400,10 @@ class HTTP(object):
         """ Make or initiate a POST request to the remote host.
 
         :param url:
-        :param headers:
+        :type url: bytes
         :param body:
+        :type body: bytes
+        :param headers:
         """
         return self.request(b"POST", url, body, **headers)
 
@@ -404,8 +411,10 @@ class HTTP(object):
         """ Make or initiate a PUT request to the remote host.
 
         :param url:
-        :param headers:
+        :type url: bytes
         :param body:
+        :type body: bytes
+        :param headers:
         """
         return self.request(b"PUT", url, body, **headers)
 
@@ -413,6 +422,7 @@ class HTTP(object):
         """ Make a DELETE request to the remote host.
 
         :param url:
+        :type url: bytes
         :param headers:
         """
         return self.request(b"DELETE", url, b"", **headers)
@@ -421,8 +431,10 @@ class HTTP(object):
         """ Make or initiate a TRACE request to the remote host.
 
         :param url:
-        :param headers:
+        :type url: bytes
         :param body:
+        :type body: bytes
+        :param headers:
         """
         return self.request(b"TRACE", url, body, **headers)
 
@@ -451,7 +463,7 @@ class HTTP(object):
             self.read()
 
         read_line = self._read_line
-        headers = self.response_headers
+        headers = self._response_headers
 
         # Status line
         status_line = read_line()
@@ -461,7 +473,7 @@ class HTTP(object):
         q = status_line.find(b" ", p)
         status_code = STATUS_CODES[status_line[p:q]]  # faster than using the int function
         self.status_code = status_code
-        self.reason_phrase = status_line[(q + 1):]
+        self.reason = status_line[(q + 1):]
 
         # Headers
         headers.clear()
@@ -493,6 +505,9 @@ class HTTP(object):
         self._content_length = content_length
         self._chunked = chunked
         self._content = b""
+        self._content_type = None
+        self._encoding = None
+        self._typed_content = None
 
         return self
 
@@ -530,16 +545,50 @@ class HTTP(object):
         return self._content
 
     @property
+    def headers(self):
+        return self._response_headers
+
+    def _parse_content_type(self):
+        try:
+            content_type, params = parse_header(self._response_headers[b"Content-Type"])
+        except KeyError:
+            self._content_type = "application/octet-stream"
+            self._encoding = "ISO-8859-1"
+        else:
+            self._content_type = content_type.decode("ISO-8859-1")
+            self._encoding = params.get(b"charset", b"ISO-8859-1").decode("ISO-8859-1")
+
+    @property
+    def content_type(self):
+        if self._content_type is None:
+            self._parse_content_type()
+        return self._content_type
+
+    @property
+    def encoding(self):
+        if self._encoding is None:
+            self._parse_content_type()
+        return self._encoding
+
+    @property
     def content(self):
         if self.readable:
             self.read()
-        return self._content
+        if self._typed_content is None:
+            content_type = self.content_type
+            if content_type.startswith("text/"):
+                self._typed_content = self._content.decode(self.encoding)
+            elif content_type == "application/json":
+                self._typed_content = json.loads(self._content.decode(self.encoding))
+            else:
+                self._typed_content = self._content
+        return self._typed_content
 
     def _finish(self):
         if self.version == b"HTTP/1.0":
-            connection = self.response_headers.get(b"Connection", b"close")
+            connection = self._response_headers.get(b"Connection", b"close")
         else:
-            connection = self.response_headers.get(b"Connection", b"keep-alive")
+            connection = self._response_headers.get(b"Connection", b"keep-alive")
         if connection == b"close":
             self.close()
 
@@ -557,16 +606,10 @@ class Resource(object):
     def get(self, **headers):
         http = self.http
         try:
-            content_out = http.get(self.path, **headers).response().read()
+            return http.get(self.path, **headers).response().content
         except ConnectionError:
             http.reconnect()
-            content_out = http.get(self.path, **headers).response().read()
-        content_type, content_type_params = parse_header(http.response_headers.get(b"Content-Type"))
-        if content_type == b"application/json":
-            charset = content_type_params.get(b"charset", "ISO-8859-1")
-            return json.loads(content_out.decode(charset))
-        else:
-            return content_out
+            return http.get(self.path, **headers).response().content
 
     def put(self, content, **headers):
         http = self.http
@@ -576,16 +619,10 @@ class Resource(object):
         elif not isinstance(content, bytes):
             content = bstr(content, "UTF-8")
         try:
-            content_out = http.put(self.path, content, **headers).response().read()
+            return http.put(self.path, content, **headers).response().read()
         except ConnectionError:
             http.reconnect()
-            content_out = http.put(self.path, content, **headers).response().read()
-        content_type, content_type_params = parse_header(http.response_headers.get(b"Content-Type"))
-        if content_type == b"application/json":
-            charset = content_type_params.get(b"charset", "ISO-8859-1")
-            return json.loads(content_out.decode(charset))
-        else:
-            return content_out
+            return http.put(self.path, content, **headers).response().read()
 
     def post(self, content, **headers):
         http = self.http
@@ -595,30 +632,18 @@ class Resource(object):
         elif not isinstance(content, bytes):
             content = bstr(content, "UTF-8")
         try:
-            content_out = http.post(self.path, content, **headers).response().read()
+            return http.post(self.path, content, **headers).response().read()
         except ConnectionError:
             http.reconnect()
-            content_out = http.post(self.path, content, **headers).response().read()
-        content_type, content_type_params = parse_header(http.response_headers.get(b"Content-Type"))
-        if content_type == b"application/json":
-            charset = content_type_params.get(b"charset", "ISO-8859-1")
-            return json.loads(content_out.decode(charset))
-        else:
-            return content_out
+            return http.post(self.path, content, **headers).response().read()
 
     def delete(self, **headers):
         http = self.http
         try:
-            content_out = http.delete(self.path, **headers).response().read()
+            return http.delete(self.path, **headers).response().read()
         except ConnectionError:
             http.reconnect()
-            content_out = http.delete(self.path, **headers).response().read()
-        content_type, content_type_params = parse_header(http.response_headers.get(b"Content-Type"))
-        if content_type == b"application/json":
-            charset = content_type_params.get(b"charset", "ISO-8859-1")
-            return json.loads(content_out.decode(charset))
-        else:
-            return content_out
+            return http.delete(self.path, **headers).response().read()
 
 
 def main2():

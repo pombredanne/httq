@@ -13,8 +13,8 @@ Quick Example
 
 >>> from httq import HTTP
 >>> http = HTTP(b"httq.io")
->>> http.get(b"/hello").response().read()
-b'hello, world'
+>>> http.get(b"hello.txt").response().content
+'hello, world'
 
 
 Download
