@@ -113,6 +113,7 @@ REQUEST_HEADERS = {
 }
 
 STATUS_CODES = {bstr(code): code for code in range(100, 600)}
+NO_CONTENT_STATUS_CODES = list(range(100, 200)) + [204, 304]
 
 
 def parse_header(value):
@@ -163,8 +164,11 @@ class HTTP(object):
 
     _socket = None
     _received = b""
+
+    _has_content = None
     _content_length = None
     _chunked = None
+
     _content = b""
     _content_type = None
     _encoding = None
@@ -181,6 +185,8 @@ class HTTP(object):
     #: Reason phrase from last response
     reason = None
 
+    _select_timeout = 0
+
     def __init__(self, host, **headers):
         self.connect(host, **headers)
 
@@ -192,15 +198,17 @@ class HTTP(object):
 
     def _recv(self, n):
         s = self._socket
-        ready_to_read, _, _ = select((s,), (), (), 0)
+        ready_to_read, _, _ = select((s,), (), (), self._select_timeout)
         if ready_to_read:
             data = s.recv(n)
             data_length = len(data)
             if data_length == 0:
                 raise ConnectionError("Peer has closed connection")
             self._received += data
+            self._select_timeout = 0
             return data_length
         else:
+            self._select_timeout = 0.001
             return 0
 
     def _read(self, n):
@@ -212,8 +220,8 @@ class HTTP(object):
             elif required > 0:
                 required -= recv(DEFAULT_BUFFER_SIZE)
         received = self._received
-        line, self._received = received[:n], received[n:]
-        return line
+        data, self._received = received[:n], received[n:]
+        return data
 
     def _read_line(self):
         recv = self._recv
@@ -224,8 +232,8 @@ class HTTP(object):
                 pass
             eol = self._received.find(b"\r\n", p)
         received = self._received
-        line, self._received = received[:eol], received[(eol + 2):]
-        return line
+        data, self._received = received[:eol], received[(eol + 2):]
+        return data
 
     def connect(self, host, **headers):
         """ Establish a connection to a remote host.
@@ -473,15 +481,16 @@ class HTTP(object):
         # Status line
         status_line = read_line()
         p = status_line.find(b" ")
-        self.version = status_line[:p]
+        self.version = status_line[:p]  # TODO: convert to text
         p += 1
         q = status_line.find(b" ", p)
         status_code = STATUS_CODES[status_line[p:q]]  # faster than using the int function
         self.status_code = status_code
-        self.reason = status_line[(q + 1):]
+        self.reason = status_line[(q + 1):]  # TODO: convert to text
 
         # Headers
         headers.clear()
+        has_content = status_code not in NO_CONTENT_STATUS_CODES
         content_length = None
         chunked = False
         while True:
@@ -497,18 +506,22 @@ class HTTP(object):
             headers[key] = value
             if key == b"Content-Length":
                 try:
+                    has_content = True
                     content_length = int(value)
                 except (TypeError, ValueError):
                     pass
             elif key == b"Transfer-Encoding":
                 if value == b"chunked":
+                    has_content = True
                     chunked = True
 
-        if not (content_length or chunked):
+        if not has_content:
             self._finish()
 
+        self._has_content = has_content
         self._content_length = content_length
         self._chunked = chunked
+
         self._content = b""
         self._content_type = None
         self._encoding = None
@@ -520,17 +533,19 @@ class HTTP(object):
     def readable(self):
         """ Boolean indicating whether response content is currently available to read.
         """
-        return self._content_length or self._chunked
+        return self._has_content
 
     def read(self):
         """ Read and return all available response content.
         """
         assert self.readable, "No content to read"
 
+        recv = self._recv
         read = self._read
         read_line = self._read_line
 
         if self._chunked:
+            # Read until empty chunk
             chunks = []
             chunk_size = -1
             while chunk_size != 0:
@@ -541,10 +556,25 @@ class HTTP(object):
             self._content = b"".join(chunks)
 
         elif self._content_length:
+            # Read fixed length
             self._content = read(self._content_length)
 
+        elif self._has_content:
+            # read until connection closed
+            chunks = []
+            try:
+                while True:
+                    available = recv(DEFAULT_BUFFER_SIZE)
+                    if available:
+                        chunks.append(self._received)
+                        self._received = b""
+            except ConnectionError:
+                self._content = b"".join(chunks)
+
+        self._has_content = None
         self._content_length = None
-        self._chunked = False
+        self._chunked = None
+
         self._finish()
 
         return self._content
