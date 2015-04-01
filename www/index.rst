@@ -12,9 +12,10 @@ Quick Example
 =============
 
 >>> from httq import HTTP
->>> http = HTTP(b"httq.io")
->>> http.get(b"hello.txt").response().content
-'hello, world'
+>>> http = HTTP(b"httq.io:8080")
+>>> response = http.get(b"/hello").response()
+>>> print(response.content)
+hello, world
 
 
 Download
