@@ -35,13 +35,19 @@ except ImportError:
 
 DEFAULT_PORT = 80
 
-METHODS = {method.decode("UTF-8"): method
-           for method in [b"OPTIONS", b"GET", b"HEAD", b"POST", b"PUT", b"DELETE", b"TRACE"]}
-HTTP_VERSIONS = {version: version.decode("UTF-8") for version in [b"HTTP/0.9", b"HTTP/1.0", b"HTTP/1.1"]}
+METHODS = {
+    method.decode("UTF-8"): method
+    for method in [b"OPTIONS", b"GET", b"HEAD", b"POST", b"PUT", b"DELETE", b"TRACE"]
+}
+HTTP_VERSIONS = {
+    version: version.decode("UTF-8")
+    for version in [b"HTTP/0.9", b"HTTP/1.0", b"HTTP/1.1"]
+}
 REASONS = {
     reason: reason.decode("UTF-8") for reason in [
         b'Continue',
         b'Switching Protocols',
+
         b'OK',
         b'Created',
         b'Accepted',
@@ -49,6 +55,7 @@ REASONS = {
         b'No Content',
         b'Reset Content',
         b'Partial Content',
+
         b'Multiple Choices',
         b'Moved Permanently',
         b'Found',
@@ -56,6 +63,7 @@ REASONS = {
         b'Not Modified',
         b'Use Proxy',
         b'Temporary Redirect',
+
         b'Bad Request',
         b'Unauthorized',
         b'Payment Required',
@@ -77,6 +85,7 @@ REASONS = {
         b'Precondition Required',
         b'Too Many Requests',
         b'Request Header Fields Too Large',
+
         b'Internal Server Error',
         b'Not Implemented',
         b'Bad Gateway',
@@ -516,6 +525,10 @@ class HTTP(object):
         return self
 
     def response(self):
+        """ Read the status line and headers for the next response.
+
+        :return: this HTTP instance
+        """
         if self._content_length or self._chunked:
             self.read()
 
@@ -532,11 +545,13 @@ class HTTP(object):
         except KeyError:
             self.version = version.decode("ISO-8859-1")
 
-        # Status code and reason phrase
+        # Status code
         p += 1
         q = status_line.find(b" ", p)
-        status_code = STATUS_CODES[status_line[p:q]]  # faster than using the int function
+        status_code = STATUS_CODES[status_line[p:q]]
         self.status_code = status_code
+
+        # Reason phrase
         reason = status_line[(q + 1):]
         try:
             self.reason = REASONS[reason]
