@@ -35,10 +35,57 @@ except ImportError:
 
 DEFAULT_PORT = 80
 
-METHODS = {m.decode("UTF-8"): m
-           for m in [b"OPTIONS", b"GET", b"HEAD", b"POST", b"PUT", b"DELETE", b"TRACE"]}
-HTTP_VERSIONS = {v.decode("UTF-8"): v for v in [b"HTTP/0.9", b"HTTP/1.0", b"HTTP/1.1"]}
-
+METHODS = {method.decode("UTF-8"): method
+           for method in [b"OPTIONS", b"GET", b"HEAD", b"POST", b"PUT", b"DELETE", b"TRACE"]}
+HTTP_VERSIONS = {version: version.decode("UTF-8") for version in [b"HTTP/0.9", b"HTTP/1.0", b"HTTP/1.1"]}
+REASONS = {
+    reason: reason.decode("UTF-8") for reason in [
+        b'Continue',
+        b'Switching Protocols',
+        b'OK',
+        b'Created',
+        b'Accepted',
+        b'Non-Authoritative Information',
+        b'No Content',
+        b'Reset Content',
+        b'Partial Content',
+        b'Multiple Choices',
+        b'Moved Permanently',
+        b'Found',
+        b'See Other',
+        b'Not Modified',
+        b'Use Proxy',
+        b'Temporary Redirect',
+        b'Bad Request',
+        b'Unauthorized',
+        b'Payment Required',
+        b'Forbidden',
+        b'Not Found',
+        b'Method Not Allowed',
+        b'Not Acceptable',
+        b'Proxy Authentication Required',
+        b'Request Timeout',
+        b'Conflict',
+        b'Gone',
+        b'Length Required',
+        b'Precondition Failed',
+        b'Request Entity Too Large',
+        b'Request-URI Too Long',
+        b'Unsupported Media Type',
+        b'Requested Range Not Satisfiable',
+        b'Expectation Failed',
+        b'Precondition Required',
+        b'Too Many Requests',
+        b'Request Header Fields Too Large',
+        b'Internal Server Error',
+        b'Not Implemented',
+        b'Bad Gateway',
+        b'Service Unavailable',
+        b'Gateway Timeout',
+        b'HTTP Version Not Supported',
+        b'Network Authentication Required',
+    ]
+}
 
 if sys.version_info >= (3,):
     SPACE = ord(' ')
@@ -490,7 +537,11 @@ class HTTP(object):
         q = status_line.find(b" ", p)
         status_code = STATUS_CODES[status_line[p:q]]  # faster than using the int function
         self.status_code = status_code
-        self.reason = status_line[(q + 1):]  # TODO: convert to text
+        reason = status_line[(q + 1):]
+        try:
+            self.reason = REASONS[reason]
+        except KeyError:
+            self.reason = reason.decode("ISO-8859-1")
 
         # Headers
         headers.clear()
