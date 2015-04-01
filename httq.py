@@ -37,6 +37,7 @@ DEFAULT_PORT = 80
 
 METHODS = {m.decode("UTF-8"): m
            for m in [b"OPTIONS", b"GET", b"HEAD", b"POST", b"PUT", b"DELETE", b"TRACE"]}
+HTTP_VERSIONS = {v.decode("UTF-8"): v for v in [b"HTTP/0.9", b"HTTP/1.0", b"HTTP/1.1"]}
 
 
 if sys.version_info >= (3,):
@@ -474,10 +475,17 @@ class HTTP(object):
         read_line = self._read_line
         headers = self._response_headers
 
-        # Status line
         status_line = read_line()
+
+        # HTTP version
         p = status_line.find(b" ")
-        self.version = status_line[:p]  # TODO: convert to text
+        version = status_line[:p]
+        try:
+            self.version = HTTP_VERSIONS[version]
+        except KeyError:
+            self.version = version.decode("ISO-8859-1")
+
+        # Status code and reason phrase
         p += 1
         q = status_line.find(b" ", p)
         status_code = STATUS_CODES[status_line[p:q]]  # faster than using the int function
