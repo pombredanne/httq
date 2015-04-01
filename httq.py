@@ -185,8 +185,6 @@ class HTTP(object):
     #: Reason phrase from last response
     reason = None
 
-    _select_timeout = 0
-
     def __init__(self, host, **headers):
         self.connect(host, **headers)
 
@@ -198,17 +196,15 @@ class HTTP(object):
 
     def _recv(self, n):
         s = self._socket
-        ready_to_read, _, _ = select((s,), (), (), self._select_timeout)
+        ready_to_read, _, _ = select((s,), (), (), 0)
         if ready_to_read:
             data = s.recv(n)
             data_length = len(data)
             if data_length == 0:
                 raise ConnectionError("Peer has closed connection")
             self._received += data
-            self._select_timeout = 0
             return data_length
         else:
-            self._select_timeout = 0.001
             return 0
 
     def _read(self, n):
