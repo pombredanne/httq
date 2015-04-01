@@ -23,7 +23,7 @@ Download
 
 ::
 
-    wget http://httq.io/httq.py
+    wget http://httq.io:8080/httq.py
 
 
 API
