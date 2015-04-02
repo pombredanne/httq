@@ -40,11 +40,11 @@ METHODS = {
     for method in [b"OPTIONS", b"GET", b"HEAD", b"POST", b"PUT", b"DELETE", b"TRACE"]
 }
 HTTP_VERSIONS = {
-    version: version.decode("UTF-8")
-    for version in [b"HTTP/0.9", b"HTTP/1.0", b"HTTP/1.1"]
+    _version: _version.decode("UTF-8")
+    for _version in [b"HTTP/0.9", b"HTTP/1.0", b"HTTP/1.1"]
 }
 REASONS = {
-    reason: reason.decode("UTF-8") for reason in [
+    _reason: _reason.decode("UTF-8") for _reason in [
         b'Continue',
         b'Switching Protocols',
 
@@ -222,6 +222,14 @@ class HTTP(object):
     _socket = None
     _received = b""
 
+    _request_headers = {}
+    _writable = False
+
+    _version = None
+    _status_code = None
+    _reason = None
+    _response_headers = {}
+
     _has_content = None
     _content_length = None
     _chunked = None
@@ -230,17 +238,6 @@ class HTTP(object):
     _content_type = None
     _encoding = None
     _typed_content = None
-    _request_headers = {}
-    _response_headers = {}
-
-    #: Boolean flag indicating whether a chunked request is currently being written.
-    writable = False
-    #: HTTP version from last response
-    version = None
-    #: Status code from last response
-    status_code = None
-    #: Reason phrase from last response
-    reason = None
 
     def __init__(self, host, **headers):
         self.connect(host, **headers)
@@ -385,7 +382,7 @@ class HTTP(object):
         if not isinstance(url, bytes):
             url = bstr(url)
 
-        if self.writable:
+        if self._writable:
             self.write(b"")
 
         # Request line
@@ -408,7 +405,7 @@ class HTTP(object):
         if body is None:
             # Chunked content
             data.append(b"Transfer-Encoding: chunked\r\n\r\n")
-            self.writable = True
+            self._writable = True
 
         else:
             # Fixed-length content
@@ -422,7 +419,7 @@ class HTTP(object):
                 data.append(b"\r\n")
             else:
                 data += [b"Content-Length: ", bstr(content_length), b"\r\n\r\n", body]
-            self.writable = False
+            self._writable = False
 
         # Send
         try:
@@ -504,12 +501,18 @@ class HTTP(object):
         """
         return self.request(b"TRACE", url, body, **headers)
 
+    @property
+    def writable(self):
+        """ Boolean flag indicating whether a chunked request is currently being written.
+        """
+        return self._writable
+
     def write(self, *chunks):
         """ Write one or more chunks of request data to the remote host.
 
         :param chunks:
         """
-        assert self.writable, "No chunked request sent"
+        assert self._writable, "No chunked request sent"
 
         data = []
         for chunk in chunks:
@@ -517,7 +520,7 @@ class HTTP(object):
             chunk_length = len(chunk)
             data += [hexb(chunk_length), b"\r\n", chunk, b"\r\n"]
             if chunk_length == 0:
-                self.writable = False
+                self._writable = False
                 break
         joined = b"".join(data)
         self._socket.sendall(joined)
@@ -539,24 +542,16 @@ class HTTP(object):
 
         # HTTP version
         p = status_line.find(b" ")
-        version = status_line[:p]
-        try:
-            self.version = HTTP_VERSIONS[version]
-        except KeyError:
-            self.version = version.decode("ISO-8859-1")
+        self._version = status_line[:p]
 
         # Status code
         p += 1
         q = status_line.find(b" ", p)
         status_code = STATUS_CODES[status_line[p:q]]
-        self.status_code = status_code
+        self._status_code = status_code
 
         # Reason phrase
-        reason = status_line[(q + 1):]
-        try:
-            self.reason = REASONS[reason]
-        except KeyError:
-            self.reason = reason.decode("ISO-8859-1")
+        self._reason = status_line[(q + 1):]
 
         # Headers
         headers.clear()
@@ -650,6 +645,40 @@ class HTTP(object):
         return self._content
 
     @property
+    def version(self):
+        """ HTTP version from the last response.
+        """
+        _version = self._version
+        if isinstance(_version, bytes):
+            try:
+                _version = HTTP_VERSIONS[_version]
+            except KeyError:
+                _version = _version.decode("ISO-8859-1")
+            finally:
+                self._version = _version
+        return _version
+
+    @property
+    def status_code(self):
+        """ Status code from the last response.
+        """
+        return self._status_code
+
+    @property
+    def reason(self):
+        """ Reason phrase from the last response.
+        """
+        _reason = self._reason
+        if isinstance(_reason, bytes):
+            try:
+                _reason = REASONS[_reason]
+            except KeyError:
+                _reason = _reason.decode("ISO-8859-1")
+            finally:
+                self._reason = _reason
+        return _reason
+
+    @property
     def headers(self):
         """ Headers from the last response.
         """
@@ -675,7 +704,7 @@ class HTTP(object):
 
     @property
     def encoding(self):
-        """ Character encoding for the last response.
+        """ Character encoding of the last response.
         """
         if self._encoding is None:
             self._parse_content_type()
@@ -700,7 +729,7 @@ class HTTP(object):
         return self._typed_content
 
     def _finish(self):
-        if self.version == b"HTTP/1.0":
+        if self.version == "HTTP/1.0":
             connection = self._response_headers.get(b"Connection", b"close")
         else:
             connection = self._response_headers.get(b"Connection", b"keep-alive")
@@ -708,13 +737,15 @@ class HTTP(object):
             self.close()
 
 
+# TODO: follow redirects
+# TODO: throw exceptions on 400/500
 class Resource(object):
 
     def __init__(self, uri, **headers):
         parsed = urlparse(uri)
         if parsed.scheme == "http":
             self.http = HTTP(parsed.netloc, **headers)
-            self.path = bstr(parsed.path)
+            self.path = bstr(parsed.path)  # TODO: include querystring
         else:
             raise ValueError("Unsupported scheme '%s'" % parsed.scheme)
 
@@ -749,6 +780,10 @@ class Resource(object):
         except ConnectionError:
             http.reconnect()
             return http.delete(self.path, **headers).response().content
+
+
+def get(url, **headers):
+    return Resource(url).get(**headers)
 
 
 def main2():
