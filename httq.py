@@ -224,9 +224,9 @@ class HTTP(object):
     _received = b""
 
     _writable = False
-    _request_method = None
-    _request_url = None
-    _request_headers = {}
+    _request_methods = []
+    _request_urls = []
+    _request_headers = []
 
     _readable = False
     _version = None
@@ -399,11 +399,9 @@ class HTTP(object):
                 method = METHODS[method]
             except KeyError:
                 method = bstr(method)
-        self._request_method = method
 
         if not isinstance(url, bytes):
             url = bstr(url)
-        self._request_url = url
 
         # Request line
         data = [method, b" ", url, b" HTTP/1.1\r\n"]
@@ -448,14 +446,17 @@ class HTTP(object):
                 data += [b"Content-Length: ", content_length_bytes, b"\r\n\r\n", body]
             self._writable = False
 
-        self._request_headers = request_headers
-
         # Send
         try:
             joined = b"".join(data)
             self._socket.sendall(joined)
         except socket.error:
             raise ConnectionError("Peer has closed connection")
+        else:
+            # TODO: stack these and pop with each response read
+            self._request_methods.append(method)
+            self._request_urls.append(url)
+            self._request_headers.append(request_headers)
 
         return self
 
@@ -463,19 +464,28 @@ class HTTP(object):
     def request_method(self):
         """ The method used for the last request.
         """
-        return self._request_method
+        try:
+            return self._request_methods[-1]
+        except IndexError:
+            return None
 
     @property
     def request_url(self):
         """ The URL used for the last request.
         """
-        return self._request_url
+        try:
+            return self._request_urls[-1]
+        except IndexError:
+            return None
 
     @property
     def request_headers(self):
         """ The headers sent with the last request.
         """
-        return self._request_headers
+        try:
+            return self._request_headers[-1]
+        except IndexError:
+            return None
 
     def options(self, url=b"*", body=None, **headers):
         """ Make or initiate an OPTIONS request to the remote host.
@@ -626,12 +636,12 @@ class HTTP(object):
                     readable = True
                     chunked = True
 
-        if not readable:
-            self._finish()
-
-        self._readable = readable
-        self._content_length = content_length
-        self._chunked = chunked
+        if readable:
+            self._readable = readable
+            self._content_length = content_length
+            self._chunked = chunked
+        else:
+            self._end_of_response()
 
         self._content = b""
         self._content_type = None
@@ -685,11 +695,7 @@ class HTTP(object):
             except ConnectionError:
                 self._content = b"".join(chunks)
 
-        self._readable = False
-        self._content_length = None
-        self._chunked = None
-
-        self._finish()
+        self._end_of_response()
 
         return self._content
 
@@ -781,11 +787,20 @@ class HTTP(object):
                 self._typed_content = self._content
         return self._typed_content
 
-    def _finish(self):
+    def _end_of_response(self):
+        self._readable = False
+        self._content_length = None
+        self._chunked = None
+
+        self._request_methods.pop()
+        self._request_urls.pop()
+        self._request_headers.pop()
+
         if self.version == "HTTP/1.0":
             connection = self._response_headers.get(b"Connection", b"close")
         else:
             connection = self._response_headers.get(b"Connection", b"keep-alive")
+
         if connection == b"close":
             self.close()
 
