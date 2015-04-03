@@ -220,33 +220,47 @@ class HTTP(object):
     """
 
     _socket = None
+    _connection_headers = {}
     _received = b""
 
-    _request_headers = {}
     _writable = False
+    _request_method = None
+    _request_url = None
+    _request_headers = {}
 
+    _readable = False
     _version = None
     _status_code = None
     _reason = None
     _response_headers = {}
-
-    _has_content = None
     _content_length = None
     _chunked = None
-
     _content = b""
     _content_type = None
     _encoding = None
     _typed_content = None
 
     def __init__(self, host, **headers):
-        self.connect(host, **headers)
+        if host:
+            self.connect(host)
+        if headers:
+            self._add_connection_headers(**headers)
 
     def __del__(self):
         try:
             self.close()
         except socket.error:
             pass
+
+    def __repr__(self):
+        return "<HTTP>"
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        # finish reading or writing
+        pass
 
     def _recv(self, n):
         s = self._socket
@@ -285,6 +299,16 @@ class HTTP(object):
         data, self._received = received[:eol], received[(eol + 2):]
         return data
 
+    def _add_connection_headers(self, **headers):
+        for name, value in headers.items():
+            try:
+                name = REQUEST_HEADERS[name]
+            except KeyError:
+                name = bstr(name).replace(b"_", b"-").title()
+            if not isinstance(value, bytes):
+                value = bstr(value)
+            self._connection_headers[name] = value
+
     def connect(self, host, **headers):
         """ Establish a connection to a remote host.
 
@@ -296,17 +320,12 @@ class HTTP(object):
             host = bstr(host)
 
         # Reset connection attributes and headers
-        self._request_headers.clear()
-        self._request_headers[b"Host"] = host
+        connection_headers = self._connection_headers
+        connection_headers.clear()
+        connection_headers[b"Host"] = host
 
-        for name, value in headers.items():
-            try:
-                name = REQUEST_HEADERS[name]
-            except KeyError:
-                name = bstr(name).replace(b"_", b"-").title()
-            if not isinstance(value, bytes):
-                value = bstr(value)
-            self._request_headers[name] = value
+        if headers:
+            self._add_connection_headers(**headers)
 
         # Establish connection
         host, _, port = host.partition(b":")
@@ -322,10 +341,10 @@ class HTTP(object):
         """ Re-establish a connection to the same remote host.
         """
         host = self.host
-        headers = dict(self._request_headers)
+        headers = dict(self._connection_headers)
         self.close()
         self.connect(host)
-        self._request_headers.update(headers)
+        self._connection_headers.update(headers)
 
     def close(self):
         """ Close the current connection.
@@ -335,13 +354,13 @@ class HTTP(object):
             self._socket = None
         self._received = b""
 
-        self._request_headers.clear()
+        self._connection_headers.clear()
 
     @property
     def host(self):
         """ The remote host to which this client is connected.
         """
-        return self._request_headers[b"Host"]
+        return self._connection_headers[b"Host"]
 
     def request(self, method, url, body=None, **headers):
         """ Make or initiate a request to the remote host.
@@ -373,23 +392,27 @@ class HTTP(object):
         :type body: bytes
         :param headers:
         """
+        if self._writable:
+            self.write(b"")
+
         if not isinstance(method, bytes):
             try:
                 method = METHODS[method]
             except KeyError:
                 method = bstr(method)
+        self._request_method = method
 
         if not isinstance(url, bytes):
             url = bstr(url)
-
-        if self._writable:
-            self.write(b"")
+        self._request_url = url
 
         # Request line
         data = [method, b" ", url, b" HTTP/1.1\r\n"]
 
         # Common headers
-        for key, value in self._request_headers.items():
+        connection_headers = self._connection_headers
+        request_headers = dict(connection_headers)
+        for key, value in connection_headers.items():
             data += [key, b": ", value, b"\r\n"]
 
         # Other headers
@@ -400,16 +423,19 @@ class HTTP(object):
                 name = bstr(name).replace(b"_", b"-").title()
             if not isinstance(value, bytes):
                 value = bstr(value)
+            request_headers[name] = value
             data += [name, b": ", value, b"\r\n"]
 
         if body is None:
             # Chunked content
+            request_headers[b"Transfer-Encoding"] = b"chunked"
             data.append(b"Transfer-Encoding: chunked\r\n\r\n")
             self._writable = True
 
         else:
             # Fixed-length content
             if isinstance(body, dict):
+                request_headers[b"Content-Type"] = b"application/json"
                 data += [b"Content-Type: application/json\r\n"]
                 body = json.dumps(body, ensure_ascii=True, separators=",:").encode("UTF-8")
             elif not isinstance(body, bytes):
@@ -418,8 +444,12 @@ class HTTP(object):
             if content_length == 0:
                 data.append(b"\r\n")
             else:
-                data += [b"Content-Length: ", bstr(content_length), b"\r\n\r\n", body]
+                content_length_bytes = bstr(content_length)
+                request_headers[b"Content-Length"] = content_length_bytes
+                data += [b"Content-Length: ", content_length_bytes, b"\r\n\r\n", body]
             self._writable = False
+
+        self._request_headers = request_headers
 
         # Send
         try:
@@ -429,6 +459,24 @@ class HTTP(object):
             raise ConnectionError("Peer has closed connection")
 
         return self
+
+    @property
+    def request_method(self):
+        """ The method used for the last request.
+        """
+        return self._request_method
+
+    @property
+    def request_url(self):
+        """ The URL used for the last request.
+        """
+        return self._request_url
+
+    @property
+    def request_headers(self):
+        """ The headers sent with the last request.
+        """
+        return self._request_headers
 
     def options(self, url=b"*", body=None, **headers):
         """ Make or initiate an OPTIONS request to the remote host.
@@ -501,7 +549,6 @@ class HTTP(object):
         """
         return self.request(b"TRACE", url, body, **headers)
 
-    @property
     def writable(self):
         """ Boolean flag indicating whether a chunked request is currently being written.
         """
@@ -533,7 +580,7 @@ class HTTP(object):
         :return: this HTTP instance
         """
         if self._content_length or self._chunked:
-            self.read()
+            self.readall()
 
         read_line = self._read_line
         headers = self._response_headers
@@ -555,7 +602,7 @@ class HTTP(object):
 
         # Headers
         headers.clear()
-        has_content = status_code not in NO_CONTENT_STATUS_CODES
+        readable = status_code not in NO_CONTENT_STATUS_CODES
         content_length = None
         chunked = False
         while True:
@@ -571,19 +618,19 @@ class HTTP(object):
             headers[key] = value
             if key == b"Content-Length":
                 try:
-                    has_content = True
+                    readable = True
                     content_length = int(value)
                 except (TypeError, ValueError):
                     pass
             elif key == b"Transfer-Encoding":
                 if value == b"chunked":
-                    has_content = True
+                    readable = True
                     chunked = True
 
-        if not has_content:
+        if not readable:
             self._finish()
 
-        self._has_content = has_content
+        self._readable = readable
         self._content_length = content_length
         self._chunked = chunked
 
@@ -594,16 +641,19 @@ class HTTP(object):
 
         return self
 
-    @property
     def readable(self):
         """ Boolean indicating whether response content is currently available to read.
         """
-        return self._has_content
+        return self._readable
 
-    def read(self):
+    def read(self, size=-1):
+        # TODO
+        raise NotImplementedError()
+
+    def readall(self):
         """ Read and return all available response content.
         """
-        assert self.readable, "No content to read"
+        assert self.readable(), "No content to read"
 
         recv = self._recv
         read = self._read
@@ -624,7 +674,7 @@ class HTTP(object):
             # Read fixed length
             self._content = read(self._content_length)
 
-        elif self._has_content:
+        elif self._readable:
             # read until connection closed
             chunks = []
             try:
@@ -636,13 +686,17 @@ class HTTP(object):
             except ConnectionError:
                 self._content = b"".join(chunks)
 
-        self._has_content = None
+        self._readable = False
         self._content_length = None
         self._chunked = None
 
         self._finish()
 
         return self._content
+
+    def readinto(self, b):
+        # TODO
+        raise NotImplementedError()
 
     @property
     def version(self):
@@ -714,8 +768,8 @@ class HTTP(object):
     def content(self):
         """ Full, typed content from the last response.
         """
-        if self.readable:
-            self.read()
+        if self.readable():
+            self.readall()
         if self._typed_content is None:
             content_type = self.content_type
             if content_type == "text/html" and BeautifulSoup:
@@ -752,34 +806,34 @@ class Resource(object):
     def get(self, **headers):
         http = self.http
         try:
-            return http.get(self.path, **headers).response().content
+            return http.get(self.path, **headers).response()
         except ConnectionError:
             http.reconnect()
-            return http.get(self.path, **headers).response().content
+            return http.get(self.path, **headers).response()
 
     def put(self, content, **headers):
         http = self.http
         try:
-            return http.put(self.path, content, **headers).response().content
+            return http.put(self.path, content, **headers).response()
         except ConnectionError:
             http.reconnect()
-            return http.put(self.path, content, **headers).response().content
+            return http.put(self.path, content, **headers).response()
 
     def post(self, content, **headers):
         http = self.http
         try:
-            return http.post(self.path, content, **headers).response().content
+            return http.post(self.path, content, **headers).response()
         except ConnectionError:
             http.reconnect()
-            return http.post(self.path, content, **headers).response().content
+            return http.post(self.path, content, **headers).response()
 
     def delete(self, **headers):
         http = self.http
         try:
-            return http.delete(self.path, **headers).response().content
+            return http.delete(self.path, **headers).response()
         except ConnectionError:
             http.reconnect()
-            return http.delete(self.path, **headers).response().content
+            return http.delete(self.path, **headers).response()
 
 
 def get(url, **headers):
@@ -801,7 +855,7 @@ def main2():
     else:
         relative_url = parsed.path
     http.get(relative_url)
-    print(http.response().read())
+    print(http.response().readall())
 
 
 def main3():
@@ -819,7 +873,7 @@ def main3():
     else:
         relative_url = parsed.path
     http.get(relative_url)
-    print(http.response().read().decode("ISO-8859-1"))
+    print(http.response().readall().decode("ISO-8859-1"))
 
 
 if __name__ == "__main__":
