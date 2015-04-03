@@ -291,10 +291,9 @@ class HTTP(object):
         recv = self._recv
         eol = self._received.find(b"\r\n")
         while eol == -1:
-            p = len(self._received)
             while recv(DEFAULT_BUFFER_SIZE) == 0:
                 pass
-            eol = self._received.find(b"\r\n", p)
+            eol = self._received.find(b"\r\n")
         received = self._received
         data, self._received = received[:eol], received[(eol + 2):]
         return data
