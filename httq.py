@@ -238,7 +238,7 @@ class HTTP(object):
     _encoding = None
     _typed_content = None
 
-    def __init__(self, host, **headers):
+    def __init__(self, host=None, **headers):
         if host:
             self.connect(host)
         if headers:
@@ -251,7 +251,22 @@ class HTTP(object):
             pass
 
     def __repr__(self):
-        return "<HTTP>"
+        params = [b"HTTP"]
+        try:
+            host = self._connection_headers[b"Host"]
+        except KeyError:
+            pass
+        else:
+            params.append(host)
+            for i, (method, url, _) in enumerate(self._requests):
+                if i == 0 and self._readable:
+                    params.append(b"(" + method + b" " + url + b")->(" + bstr(self.status_code) + b")")
+                else:
+                    params.append(b"(" + method + b" " + url + b")->()")
+        if sys.version_info >= (3,):
+            return "<%s>" % " ".join(param.decode("UTF-8") for param in params)
+        else:
+            return "<%s>" % " ".join(param for param in params)
 
     def __enter__(self):
         return self
@@ -437,7 +452,7 @@ class HTTP(object):
                 data += [b"Content-Type: application/json\r\n"]
                 body = json.dumps(body, ensure_ascii=True, separators=",:").encode("UTF-8")
             elif not isinstance(body, bytes):
-                body = bstr(bytes)
+                body = bstr(body)
             content_length = len(body)
             if content_length == 0:
                 data.append(b"\r\n")
@@ -586,7 +601,7 @@ class HTTP(object):
 
         :return: this HTTP instance
         """
-        if self._content_length or self._chunked:
+        if self._readable:
             self.readall()
 
         read_line = self._read_line
@@ -625,17 +640,18 @@ class HTTP(object):
             headers[key] = value
             if key == b"Content-Length":
                 try:
-                    readable = True
                     content_length = int(value)
                 except (TypeError, ValueError):
                     pass
+                else:
+                    if content_length == 0:
+                        readable = False
             elif key == b"Transfer-Encoding":
                 if value == b"chunked":
-                    readable = True
                     chunked = True
 
         if readable:
-            self._readable = readable
+            self._readable = True
             self._content_length = content_length
             self._chunked = chunked
         else:
