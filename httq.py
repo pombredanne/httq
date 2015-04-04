@@ -224,9 +224,7 @@ class HTTP(object):
     _received = b""
 
     _writable = False
-    _request_methods = []
-    _request_urls = []
-    _request_headers = []
+    _requests = []
 
     _readable = False
     _version = None
@@ -308,6 +306,17 @@ class HTTP(object):
                 value = bstr(value)
             self._connection_headers[name] = value
 
+    def _connect(self, host):
+        host, _, port = host.partition(b":")
+        if port:
+            port = int(port)
+        else:
+            port = DEFAULT_PORT
+
+        self._socket = socket.create_connection((host, port))
+        self._received = b""
+        del self._requests[:]
+
     def connect(self, host, **headers):
         """ Establish a connection to a remote host.
 
@@ -326,24 +335,15 @@ class HTTP(object):
         if headers:
             self._add_connection_headers(**headers)
 
-        # Establish connection
-        host, _, port = host.partition(b":")
-        if port:
-            port = int(port)
-        else:
-            port = DEFAULT_PORT
-
-        self._socket = socket.create_connection((host, port))
-        self._received = b""
+        self._connect(host)
 
     def reconnect(self):
         """ Re-establish a connection to the same remote host.
         """
-        host = self.host
-        headers = dict(self._connection_headers)
-        self.close()
-        self.connect(host)
-        self._connection_headers.update(headers)
+        if self._socket:
+            self._socket.close()
+            self._socket = None
+        self._connect(self.host)
 
     def close(self):
         """ Close the current connection.
@@ -352,6 +352,7 @@ class HTTP(object):
             self._socket.close()
             self._socket = None
         self._received = b""
+        del self._requests[:]
 
         self._connection_headers.clear()
 
@@ -453,37 +454,34 @@ class HTTP(object):
         except socket.error:
             raise ConnectionError("Peer has closed connection")
         else:
-            # TODO: stack these and pop with each response read
-            self._request_methods.append(method)
-            self._request_urls.append(url)
-            self._request_headers.append(request_headers)
+            self._requests.append((method, url, request_headers))
 
         return self
 
     @property
     def request_method(self):
-        """ The method used for the last request.
+        """ The method used for the request behind the next response.
         """
         try:
-            return self._request_methods[-1]
+            return self._requests[-1][0]
         except IndexError:
             return None
 
     @property
     def request_url(self):
-        """ The URL used for the last request.
+        """ The URL used for the request behind the next response.
         """
         try:
-            return self._request_urls[-1]
+            return self._requests[-1][1]
         except IndexError:
             return None
 
     @property
     def request_headers(self):
-        """ The headers sent with the last request.
+        """ The headers sent with the request behind the next response.
         """
         try:
-            return self._request_headers[-1]
+            return self._requests[-1][2]
         except IndexError:
             return None
 
@@ -641,7 +639,7 @@ class HTTP(object):
             self._content_length = content_length
             self._chunked = chunked
         else:
-            self._end_of_response()
+            self._finish_exchange()
 
         self._content = b""
         self._content_type = None
@@ -662,7 +660,8 @@ class HTTP(object):
     def readall(self):
         """ Read and return all available response content.
         """
-        assert self.readable(), "No content to read"
+        if not self._readable:
+            raise IOError("No content to read")
 
         recv = self._recv
         read = self._read
@@ -684,7 +683,7 @@ class HTTP(object):
             self._content = read(self._content_length)
 
         elif self._readable:
-            # read until connection closed
+            # Read until connection closed
             chunks = []
             try:
                 while True:
@@ -695,7 +694,7 @@ class HTTP(object):
             except ConnectionError:
                 self._content = b"".join(chunks)
 
-        self._end_of_response()
+        self._finish_exchange()
 
         return self._content
 
@@ -787,14 +786,12 @@ class HTTP(object):
                 self._typed_content = self._content
         return self._typed_content
 
-    def _end_of_response(self):
+    def _finish_exchange(self):
         self._readable = False
         self._content_length = None
         self._chunked = None
 
-        self._request_methods.pop()
-        self._request_urls.pop()
-        self._request_headers.pop()
+        self._requests.pop(0)
 
         if self.version == "HTTP/1.0":
             connection = self._response_headers.get(b"Connection", b"close")
