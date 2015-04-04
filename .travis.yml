@@ -5,7 +5,7 @@ python:
   - "3.3"
   - "3.4"
 
-install: "pip install py.test"
+install: "pip install pytest"
 
 script:
   - py.test test.py
