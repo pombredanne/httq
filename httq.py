@@ -677,15 +677,31 @@ class HTTP(object):
         if is_head_response:
             self._readable = False
             self._typed_content = None
-            self._finish_exchange()
+            finish = True
 
         elif readable:
             self._readable = True
             self._content_length = content_length
             self._chunked = chunked
+            finish = False
 
         else:
-            self._finish_exchange()
+            finish = True
+
+        if finish:
+            self._readable = False
+            self._content_length = None
+            self._chunked = None
+
+            self._requests.pop(0)
+
+            if self.version == "HTTP/1.0":
+                connection = self._response_headers.get(b"Connection", b"close")
+            else:
+                connection = self._response_headers.get(b"Connection", b"keep-alive")
+
+            if connection == b"close":
+                self.close()
 
         return self
 
@@ -735,7 +751,19 @@ class HTTP(object):
             except ConnectionError:
                 self._content = b"".join(chunks)
 
-        self._finish_exchange()
+        self._readable = False
+        self._content_length = None
+        self._chunked = None
+
+        self._requests.pop(0)
+
+        if self.version == "HTTP/1.0":
+            connection = self._response_headers.get(b"Connection", b"close")
+        else:
+            connection = self._response_headers.get(b"Connection", b"keep-alive")
+
+        if connection == b"close":
+            self.close()
 
         return self._content
 
@@ -813,7 +841,7 @@ class HTTP(object):
     def content(self):
         """ Full, typed content from the last response.
         """
-        if self.readable():
+        if self._readable:
             self.readall()
         if self._typed_content is NotImplemented:
             content_type = self.content_type
@@ -827,20 +855,6 @@ class HTTP(object):
                 self._typed_content = self._content
         return self._typed_content
 
-    def _finish_exchange(self):
-        self._readable = False
-        self._content_length = None
-        self._chunked = None
-
-        self._requests.pop(0)
-
-        if self.version == "HTTP/1.0":
-            connection = self._response_headers.get(b"Connection", b"close")
-        else:
-            connection = self._response_headers.get(b"Connection", b"keep-alive")
-
-        if connection == b"close":
-            self.close()
 try:
     import ssl
 except ImportError:
