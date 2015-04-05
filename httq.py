@@ -855,7 +855,8 @@ else:
         _ssl_context = None
 
         def __init__(self, host=None, **headers):
-            self._ssl_context = ssl._create_stdlib_context()
+            self._ssl_context = ssl.SSLContext(ssl.PROTOCOL_SSLv23)
+            self._ssl_context.options |= ssl.OP_NO_SSLv2
             super(HTTPS, self).__init__(host, **headers)
 
         def _connect(self, host):
