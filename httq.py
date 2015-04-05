@@ -33,7 +33,7 @@ except ImportError:
     BeautifulSoup = None
 
 
-__all__ = ["HTTP", "Resource", "get", "ConnectionError"]
+__all__ = ["HTTP", "Resource", "get", "head", "put", "patch", "post", "delete", "ConnectionError"]
 
 
 METHODS = {
@@ -613,11 +613,16 @@ class HTTP(object):
 
         :return: this HTTP instance
         """
+        if not self._requests:
+            raise IOError("No requests outstanding")
+
         if self._readable:
             self.readall()
 
         read_line = self._read_line
         headers = self._response_headers
+
+        is_head_response = self.request_method == b"HEAD"
 
         status_line = read_line()
 
@@ -650,7 +655,9 @@ class HTTP(object):
                 p += 1
             value = header_line[p:]
             headers[key] = value
-            if key == b"Content-Length":
+            if is_head_response:
+                pass
+            elif key == b"Content-Length":
                 try:
                     content_length = int(value)
                 except (TypeError, ValueError):
@@ -662,17 +669,23 @@ class HTTP(object):
                 if value == b"chunked":
                     chunked = True
 
-        if readable:
-            self._readable = True
-            self._content_length = content_length
-            self._chunked = chunked
-        else:
-            self._finish_exchange()
-
         self._content = b""
         self._content_type = None
         self._encoding = None
-        self._typed_content = None
+        self._typed_content = NotImplemented
+
+        if is_head_response:
+            self._readable = False
+            self._typed_content = None
+            self._finish_exchange()
+
+        elif readable:
+            self._readable = True
+            self._content_length = content_length
+            self._chunked = chunked
+
+        else:
+            self._finish_exchange()
 
         return self
 
@@ -802,7 +815,7 @@ class HTTP(object):
         """
         if self.readable():
             self.readall()
-        if self._typed_content is None:
+        if self._typed_content is NotImplemented:
             content_type = self.content_type
             if content_type == "text/html" and BeautifulSoup:
                 self._typed_content = BeautifulSoup(self._content)
