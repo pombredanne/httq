@@ -8,7 +8,7 @@ import os
 from httq import HTTP, basic_auth
 
 
-http = HTTP(b"localhost:7474", authorization=basic_auth("neo4j", "password"), x_stream=True, user_agent=b"httq/0")
+http = HTTP(b"localhost:7474", authorization=basic_auth("neo4j", "password"), user_agent=b"httq/0", content_type=b"application/json")
 
 try:
     loops = int(os.getenv("LOOPS", "1"))
@@ -19,8 +19,7 @@ body = json.dumps({"statements": [{"statement": "RETURN 1"}]}, ensure_ascii=True
 
 
 def query():
-    http.post(b"/db/data/transaction/commit", body, content_type=b"application/json")
-    if http.response().status_code == 200:
+    if http.request(b"POST", b"/db/data/transaction/commit", body).response().status_code == 200:
         if loops == 1:
             print(http.content)
     else:
