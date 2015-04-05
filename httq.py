@@ -33,7 +33,8 @@ except ImportError:
     BeautifulSoup = None
 
 
-DEFAULT_PORT = 80
+__all__ = ["HTTP", "Resource", "get", "ConnectionError"]
+
 
 METHODS = {
     method.decode("UTF-8"): method
@@ -173,6 +174,15 @@ STATUS_CODES = {bstr(code): code for code in range(100, 600)}
 NO_CONTENT_STATUS_CODES = list(range(100, 200)) + [204, 304]
 
 
+def parse_host(host, default_port=None):
+    host, _, port = host.partition(b":")
+    if port:
+        port = int(port)
+    else:
+        port = default_port
+    return host, port
+
+
 def parse_header(value):
     if value is None:
         return None, None
@@ -205,12 +215,6 @@ def parse_header(value):
     return string_value, params
 
 
-class ConnectionError(IOError):
-
-    def __init__(self, *args, **kwargs):
-        super(ConnectionError, self).__init__(*args, **kwargs)
-
-
 class HTTP(object):
     """ Low-level HTTP client providing access to raw request and response functions.
 
@@ -218,6 +222,8 @@ class HTTP(object):
     :type host: bytes
     :param headers:
     """
+
+    DEFAULT_PORT = 80
 
     _socket = None
     _connection_headers = {}
@@ -322,13 +328,7 @@ class HTTP(object):
             self._connection_headers[name] = value
 
     def _connect(self, host):
-        host, _, port = host.partition(b":")
-        if port:
-            port = int(port)
-        else:
-            port = DEFAULT_PORT
-
-        self._socket = socket.create_connection((host, port))
+        self._socket = socket.create_connection(parse_host(host, self.DEFAULT_PORT))
         self._received = b""
         del self._requests[:]
 
@@ -364,6 +364,7 @@ class HTTP(object):
         """ Close the current connection.
         """
         if self._socket:
+            self._socket.shutdown(socket.SHUT_RDWR)
             self._socket.close()
             self._socket = None
         self._received = b""
@@ -816,6 +817,29 @@ class HTTP(object):
 
         if connection == b"close":
             self.close()
+try:
+    import ssl
+except ImportError:
+    pass
+else:
+    class HTTPS(HTTP):
+        """ This class allows communication via SSL.
+        """
+
+        DEFAULT_PORT = 443
+
+        _ssl_context = None
+
+        def __init__(self, host=None, **headers):
+            self._ssl_context = ssl._create_stdlib_context()
+            super(HTTPS, self).__init__(host, **headers)
+
+        def _connect(self, host):
+            super(HTTPS, self)._connect(host)
+            host, port = parse_host(host, self.DEFAULT_PORT)
+            self._socket = self._ssl_context.wrap_socket(self._socket, server_hostname=host if ssl.HAS_SNI else None)
+
+    __all__.insert(1, "HTTPS")
 
 
 # TODO: follow redirects
@@ -826,6 +850,9 @@ class Resource(object):
         parsed = urlparse(uri)
         if parsed.scheme == "http":
             self.http = HTTP(parsed.netloc, **headers)
+            self.path = bstr(parsed.path)  # TODO: include querystring
+        elif parsed.scheme == "https":
+            self.http = HTTPS(parsed.netloc, **headers)
             self.path = bstr(parsed.path)  # TODO: include querystring
         else:
             raise ValueError("Unsupported scheme '%s'" % parsed.scheme)
@@ -865,6 +892,12 @@ class Resource(object):
 
 def get(url, **headers):
     return Resource(url).get(**headers)
+
+
+class ConnectionError(IOError):
+
+    def __init__(self, *args, **kwargs):
+        super(ConnectionError, self).__init__(*args, **kwargs)
 
 
 def main2():
