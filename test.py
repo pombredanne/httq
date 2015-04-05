@@ -1,19 +1,29 @@
 
 from unittest import TestCase, main
 
-from httq import HTTP
+from httq import HTTP, HTTPS
 
 
 class ConnectTestCase(TestCase):
 
-    def test_can_connect_without_port(self):
-        http = HTTP(b"httq.io")
-        assert http.host == b"httq.io"
+    def test_can_establish_http_connection_without_port(self):
+        http = HTTP(b"eu.httpbin.org")
+        assert http.host == b"eu.httpbin.org"
         http.close()
 
-    def test_can_connect_with_port(self):
-        http = HTTP(b"httq.io:8080")
-        assert http.host == b"httq.io:8080"
+    def test_can_establish_http_connection_with_port(self):
+        http = HTTP(b"eu.httpbin.org:80")
+        assert http.host == b"eu.httpbin.org:80"
+        http.close()
+
+    def test_can_establish_https_connection_without_port(self):
+        http = HTTPS(b"eu.httpbin.org")
+        assert http.host == b"eu.httpbin.org"
+        http.close()
+
+    def test_can_establish_https_connection_with_port(self):
+        http = HTTPS(b"eu.httpbin.org:443")
+        assert http.host == b"eu.httpbin.org:443"
         http.close()
 
 
