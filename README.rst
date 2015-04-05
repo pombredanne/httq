@@ -11,9 +11,19 @@ This decoupling allows multiple requests to be pipelined on a single connection 
 Example Code
 ============
 
+Open an HTTP connection to `http.io` on port 8080, send a `GET` request to `/hello` and obtain the response content: 
+
 .. code:: python
 
     >>> from httq import HTTP
     >>> http = HTTP(b"httq.io:8080")
     >>> print(http.get(b"/hello").response().content)
+    hello, world
+
+Get the same content using a full URL on a single-use connection: 
+
+.. code:: python
+
+    >>> from httq import get
+    >>> print(get(b"http://httq.io:8080/hello").content)
     hello, world

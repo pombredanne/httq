@@ -886,11 +886,11 @@ else:
 class Resource(object):
 
     def __init__(self, uri, **headers):
-        parsed = urlparse(uri)
-        if parsed.scheme == "http":
+        parsed = urlparse(bstr(uri))
+        if parsed.scheme == b"http":
             self.http = HTTP(parsed.netloc, **headers)
             self.path = bstr(parsed.path)  # TODO: include querystring
-        elif parsed.scheme == "https":
+        elif parsed.scheme == b"https":
             self.http = HTTPS(parsed.netloc, **headers)
             self.path = bstr(parsed.path)  # TODO: include querystring
         else:
