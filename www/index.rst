@@ -13,8 +13,7 @@ Quick Example
 
 >>> from httq import HTTP
 >>> http = HTTP(b"httq.io:8080")
->>> response = http.get(b"/hello").response()
->>> print(response.content)
+>>> print(http.get(b"/hello").response().content)
 hello, world
 
 
