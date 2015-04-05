@@ -886,7 +886,9 @@ else:
 class Resource(object):
 
     def __init__(self, uri, **headers):
-        parsed = urlparse(bstr(uri))
+        if not isinstance(uri, bytes):
+            uri = bstr(uri)
+        parsed = urlparse(uri)
         if parsed.scheme == b"http":
             self.http = HTTP(parsed.netloc, **headers)
             self.path = bstr(parsed.path)  # TODO: include querystring
