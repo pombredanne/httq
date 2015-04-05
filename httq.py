@@ -33,6 +33,11 @@ except ImportError:
     BeautifulSoup = None
 
 
+__author__ = "Nigel Small"
+__copyright__ = "2015, Nigel Small"
+__email__ = "nigel@nigelsmall.com"
+__license__ = "Apache License, Version 2.0"
+__version__ = "0.0.0"
 __all__ = ["HTTP", "Resource", "get", "head", "put", "patch", "post", "delete", "ConnectionError"]
 
 
