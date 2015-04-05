@@ -552,6 +552,17 @@ class HTTP(object):
         """
         return self.request(b"PUT", url, body, **headers)
 
+    def patch(self, url, body=None, **headers):
+        """ Make or initiate a PATCH request to the remote host.
+
+        :param url:
+        :type url: bytes
+        :param body:
+        :type body: bytes
+        :param headers:
+        """
+        return self.request(b"PATCH", url, body, **headers)
+
     def delete(self, url, **headers):
         """ Make a DELETE request to the remote host.
 
@@ -865,6 +876,14 @@ class Resource(object):
             http.reconnect()
             return http.get(self.path, **headers).response()
 
+    def head(self, **headers):
+        http = self.http
+        try:
+            return http.head(self.path, **headers).response()
+        except ConnectionError:
+            http.reconnect()
+            return http.head(self.path, **headers).response()
+
     def put(self, content, **headers):
         http = self.http
         try:
@@ -872,6 +891,14 @@ class Resource(object):
         except ConnectionError:
             http.reconnect()
             return http.put(self.path, content, **headers).response()
+
+    def patch(self, content, **headers):
+        http = self.http
+        try:
+            return http.patch(self.path, content, **headers).response()
+        except ConnectionError:
+            http.reconnect()
+            return http.patch(self.path, content, **headers).response()
 
     def post(self, content, **headers):
         http = self.http
@@ -892,6 +919,26 @@ class Resource(object):
 
 def get(url, **headers):
     return Resource(url).get(**headers)
+
+
+def head(url, **headers):
+    return Resource(url).head(**headers)
+
+
+def put(url, content, **headers):
+    return Resource(url).put(content, **headers)
+
+
+def patch(url, content, **headers):
+    return Resource(url).patch(content, **headers)
+
+
+def post(url, content, **headers):
+    return Resource(url).post(content, **headers)
+
+
+def delete(url, **headers):
+    return Resource(url).delete(**headers)
 
 
 class ConnectionError(IOError):
