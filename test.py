@@ -26,6 +26,13 @@ class ConnectTestCase(TestCase):
         assert http.host == b"eu.httpbin.org:443"
         http.close()
 
+    def test_can_reconnect(self):
+        http = HTTP(b"eu.httpbin.org")
+        assert http.host == b"eu.httpbin.org"
+        http.reconnect()
+        assert http.host == b"eu.httpbin.org"
+        http.close()
+
 
 class GetMethodTestCase(TestCase):
 
