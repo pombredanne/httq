@@ -27,7 +27,7 @@ from httq import __author__, __email__, __license__, __version__
 setup(
     name="httq",
     version=__version__,
-    description=__doc__,
+    description='fast and lightweight HTTP client written in pure Python',
     long_description=open("README.rst").read(),
     author=__author__,
     author_email=__email__,
