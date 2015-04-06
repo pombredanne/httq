@@ -133,8 +133,8 @@ else:
         return hex(n)[2:]
 
 
-def basic_auth(user_id, password):
-    return b"Basic " + b64encode(b":".join((bstr(user_id), bstr(password))))
+def basic_auth(*args):
+    return b"Basic " + b64encode(b":".join(map(bstr, args)))
 
 
 def internet_time(value):
@@ -179,15 +179,6 @@ STATUS_CODES = {bstr(code): code for code in range(100, 600)}
 NO_CONTENT_STATUS_CODES = list(range(100, 200)) + [204, 304]
 
 
-def parse_host(host, default_port=None):
-    host, _, port = host.partition(b":")
-    if port:
-        port = int(port)
-    else:
-        port = default_port
-    return host, port
-
-
 def parse_header(value):
     if value is None:
         return None, None
@@ -220,17 +211,102 @@ def parse_header(value):
     return string_value, params
 
 
+def parse_uri(uri):
+    scheme = authority = path = query = fragment = None
+
+    if uri is not None:
+
+        if not isinstance(uri, bytes):
+            uri = bstr(uri)
+
+        # Scheme
+        q = uri.find(b":")
+        if q == -1:
+            start = 0
+        else:
+            scheme = uri[:q]
+            start = q + 1
+        end = len(uri)
+
+        # Fragment
+        q = uri.find(b"#", start)
+        if q != -1:
+            fragment = uri[(q + 1):]
+            end = q
+
+        # Query
+        q = uri.find(b"?", start)
+        if start <= q < end:
+            query = uri[(q + 1):end]
+            end = q
+
+        # Authority and path
+        p = start + 2
+        if uri[start:p] == b"//":
+            q = uri.find(b"/", p)
+            if q == -1:
+                authority = uri[p:end]
+                path = b""
+            else:
+                authority = uri[p:q]
+                path = uri[q:end]
+        else:
+            path = uri[start:end]
+
+    return scheme, authority, path, query, fragment
+
+
+def parse_uri_authority(authority):
+    user_info = host = port = None
+
+    if authority is not None:
+
+        if not isinstance(authority, bytes):
+            authority = bstr(authority)
+
+        # User info
+        p = authority.find(b"@")
+        if p != -1:
+            user_info = authority[:p]
+
+        # Host and port
+        p += 1
+        q = authority.find(b":", p)
+        if q == -1:
+            host = authority[p:]
+        else:
+            host = authority[p:q]
+            q += 1
+            try:
+                port = int(authority[q:])
+            except ValueError:
+                port = authority[q:]
+
+    return user_info, host, port
+
+
+def parse_host(host, default_port=None):
+    host, _, port = host.partition(b":")
+    if port:
+        port = int(port)
+    else:
+        port = default_port
+    return host, port
+
+
 class HTTP(object):
     """ Low-level HTTP client providing access to raw request and response functions.
 
-    :param host:
-    :type host: bytes
+    :param authority: URI authority to which to connect
     :param headers:
     """
 
     DEFAULT_PORT = 80
 
     _socket = None
+    _user_info = None
+    _host = None
+    _port = None
     _connection_headers = {}
     _received = b""
 
@@ -249,9 +325,9 @@ class HTTP(object):
     _encoding = None
     _typed_content = None
 
-    def __init__(self, host=None, **headers):
-        if host:
-            self.connect(host)
+    def __init__(self, authority=None, **headers):
+        if authority:
+            self.connect(authority)
         if headers:
             self._add_connection_headers(**headers)
 
@@ -332,30 +408,38 @@ class HTTP(object):
                 value = bstr(value)
             self._connection_headers[name] = value
 
-    def _connect(self, host):
-        self._socket = socket.create_connection(parse_host(host, self.DEFAULT_PORT))
+    def _connect(self, host, port):
+        self._socket = socket.create_connection((host, port or self.DEFAULT_PORT))
         self._received = b""
         del self._requests[:]
 
-    def connect(self, host, **headers):
+    def connect(self, authority, **headers):
         """ Establish a connection to a remote host.
 
-        :param host: the host to which to connect
+        :param authority: the URI authority to which to connect
         :type host: bytes
         :param headers: headers to pass into each request for this connection
         """
-        if not isinstance(host, bytes):
-            host = bstr(host)
+        user_info, host, port = parse_uri_authority(authority)
 
         # Reset connection attributes and headers
         connection_headers = self._connection_headers
         connection_headers.clear()
-        connection_headers[b"Host"] = host
+        if user_info:
+            connection_headers[b"Authorization"] = basic_auth(user_info)
+        if port:
+            connection_headers[b"Host"] = host + b":" + bstr(port)
+        else:
+            connection_headers[b"Host"] = host
 
         if headers:
             self._add_connection_headers(**headers)
 
-        self._connect(host)
+        self._connect(host, port)
+
+        self._user_info = user_info
+        self._host = host
+        self._port = port
 
     def reconnect(self):
         """ Re-establish a connection to the same remote host.
@@ -363,7 +447,7 @@ class HTTP(object):
         if self._socket:
             self._socket.close()
             self._socket = None
-        self._connect(self.host)
+        self._connect(self._host, self._port)
 
     def close(self):
         """ Close the current connection.
@@ -873,14 +957,13 @@ else:
 
         _ssl_context = None
 
-        def __init__(self, host=None, **headers):
+        def __init__(self, authority=None, **headers):
             self._ssl_context = ssl.SSLContext(ssl.PROTOCOL_SSLv23)
             self._ssl_context.options |= ssl.OP_NO_SSLv2
-            super(HTTPS, self).__init__(host, **headers)
+            super(HTTPS, self).__init__(authority, **headers)
 
-        def _connect(self, host):
-            super(HTTPS, self)._connect(host)
-            host, port = parse_host(host, self.DEFAULT_PORT)
+        def _connect(self, host, port):
+            super(HTTPS, self)._connect(host, port)
             self._socket = self._ssl_context.wrap_socket(self._socket, server_hostname=host if ssl.HAS_SNI else None)
 
     __all__.insert(1, "HTTPS")

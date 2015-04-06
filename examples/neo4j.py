@@ -5,10 +5,10 @@
 import json
 import os
 
-from httq import HTTP, basic_auth
+from httq import HTTP
 
 
-http = HTTP(b"localhost:7474", authorization=basic_auth("neo4j", "password"), user_agent=b"httq/0", content_type=b"application/json")
+http = HTTP(b"neo4j:password@localhost:7474", user_agent=b"httq/0", content_type=b"application/json")
 
 try:
     loops = int(os.getenv("LOOPS", "1"))
