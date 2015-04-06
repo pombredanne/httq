@@ -34,6 +34,11 @@ setup(
     url="http://httq.io/",
     py_modules=["httq"],
     scripts=["httq.py"],
+    entry_points={
+        "console_scripts": [
+            "httq = httq:main",
+        ],
+    },
     install_requires=[],
     license=__license__,
     classifiers=[

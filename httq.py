@@ -1074,7 +1074,7 @@ def main2():
             args.append(arg)
     url = args[0]
     parsed = urlparse(url)
-    http = HTTP(parsed.hostname, parsed.port)
+    http = HTTP(parsed.netloc)
     if parsed.query:
         relative_url = "%s?%s" % (parsed.path, parsed.query)
     else:
@@ -1092,7 +1092,7 @@ def main3():
             args.append(arg)
     url = args[0].encode("ISO-8859-1")
     parsed = urlparse(url)
-    http = HTTP(parsed.hostname, parsed.port)
+    http = HTTP(parsed.netloc)
     if parsed.query:
         relative_url = "%s?%s" % (parsed.path, parsed.query)
     else:
@@ -1101,8 +1101,12 @@ def main3():
     print(http.response().readall().decode("ISO-8859-1"))
 
 
-if __name__ == "__main__":
+def main():
     if sys.version_info >= (3,):
         main3()
     else:
         main2()
+
+
+if __name__ == "__main__":
+    main()
