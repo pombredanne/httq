@@ -285,15 +285,6 @@ def parse_uri_authority(authority):
     return user_info, host, port
 
 
-def parse_host(host, default_port=None):
-    host, _, port = host.partition(b":")
-    if port:
-        port = int(port)
-    else:
-        port = default_port
-    return host, port
-
-
 class HTTP(object):
     """ Low-level HTTP client providing access to raw request and response functions.
 
