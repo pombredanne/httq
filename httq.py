@@ -408,7 +408,6 @@ class HTTP(object):
         """ Establish a connection to a remote host.
 
         :param authority: the URI authority to which to connect
-        :type host: bytes
         :param headers: headers to pass into each request for this connection
         """
         user_info, host, port = parse_uri_authority(authority)
@@ -480,12 +479,9 @@ class HTTP(object):
         >>> http.write(b'')
 
         :param method: request method, e.g. :code:`b'GET'`
-        :type method: bytes
         :param url: relative URL for this request
-        :type url: bytes
         :param body: the byte content to send with this request
                      or :const:`None` for separate, chunked data
-        :type body: bytes
         :param headers:
         """
         if self._writable:
@@ -585,9 +581,7 @@ class HTTP(object):
         """ Make or initiate an OPTIONS request to the remote host.
 
         :param url:
-        :type url: bytes
         :param body:
-        :type body: bytes
         :param headers:
         """
         return self.request(b"OPTIONS", url, body, **headers)
@@ -596,7 +590,6 @@ class HTTP(object):
         """ Make a GET request to the remote host.
 
         :param url:
-        :type url: bytes
         :param headers:
         """
         return self.request(b"GET", url, b"", **headers)
@@ -605,7 +598,6 @@ class HTTP(object):
         """ Make a HEAD request to the remote host.
 
         :param url:
-        :type url: bytes
         :param headers:
         """
         return self.request(b"HEAD", url, b"", **headers)
@@ -614,9 +606,7 @@ class HTTP(object):
         """ Make or initiate a POST request to the remote host.
 
         :param url:
-        :type url: bytes
         :param body:
-        :type body: bytes
         :param headers:
         """
         return self.request(b"POST", url, body, **headers)
@@ -625,9 +615,7 @@ class HTTP(object):
         """ Make or initiate a PUT request to the remote host.
 
         :param url:
-        :type url: bytes
         :param body:
-        :type body: bytes
         :param headers:
         """
         return self.request(b"PUT", url, body, **headers)
@@ -636,9 +624,7 @@ class HTTP(object):
         """ Make or initiate a PATCH request to the remote host.
 
         :param url:
-        :type url: bytes
         :param body:
-        :type body: bytes
         :param headers:
         """
         return self.request(b"PATCH", url, body, **headers)
@@ -647,7 +633,6 @@ class HTTP(object):
         """ Make a DELETE request to the remote host.
 
         :param url:
-        :type url: bytes
         :param headers:
         """
         return self.request(b"DELETE", url, b"", **headers)
@@ -656,9 +641,7 @@ class HTTP(object):
         """ Make or initiate a TRACE request to the remote host.
 
         :param url:
-        :type url: bytes
         :param body:
-        :type body: bytes
         :param headers:
         """
         return self.request(b"TRACE", url, body, **headers)
