@@ -1,7 +1,36 @@
 
 from unittest import TestCase, main
 
-from httq import HTTP, HTTPS
+from httq import HTTP, HTTPS, parse_uri
+
+
+class URITestCase(TestCase):
+
+    def test_can_correctly_parse_uris(self):
+        uri_list = [
+            (b"foo://bob@somewhere@example.com:8042/over/there?name=ferret#nose",
+             (b"foo", b"bob@somewhere@example.com:8042", b"/over/there", b"name=ferret", b"nose")),
+            (b"foo://bob@somewhere@example.com:8042/over/there?name=ferret",
+             (b"foo", b"bob@somewhere@example.com:8042", b"/over/there", b"name=ferret", None)),
+            (b"foo://bob@somewhere@example.com:8042/over/there",
+             (b"foo", b"bob@somewhere@example.com:8042", b"/over/there", None, None)),
+            (b"foo://bob@somewhere@example.com:8042/over/there#nose",
+             (b"foo", b"bob@somewhere@example.com:8042", b"/over/there", None, b"nose")),
+            (b"foo://bob@somewhere@example.com:8042",
+             (b"foo", b"bob@somewhere@example.com:8042", b"", None, None)),
+            (b"//bob@somewhere@example.com:8042",
+             (None, b"bob@somewhere@example.com:8042", b"", None, None)),
+            (b"//bob@somewhere@example.com:8042/over/there",
+             (None, b"bob@somewhere@example.com:8042", b"/over/there", None, None)),
+            (None,
+             (None, None, None, None, None)),
+            (b"?name=ferret",
+             (None, None, b"", b"name=ferret", None)),
+            (b"#nose",
+             (None, None, b"", None, b"nose")),
+        ]
+        for uri, parts in uri_list:
+            assert parse_uri(uri) == parts
 
 
 class ConnectTestCase(TestCase):

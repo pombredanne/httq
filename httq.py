@@ -19,6 +19,7 @@
 from base64 import b64encode
 from io import DEFAULT_BUFFER_SIZE
 import json
+import re
 from select import select
 import socket
 import sys
@@ -41,6 +42,7 @@ __version__ = "0.0.1"
 __all__ = ["HTTP", "Resource", "get", "head", "put", "patch", "post", "delete", "ConnectionError"]
 
 
+SCHEME = re.compile(b"[A-Za-z][+\-.0-9A-Za-z]*$")
 METHODS = {
     method.decode("UTF-8"): method
     for method in [b"OPTIONS", b"GET", b"HEAD", b"POST", b"PUT", b"DELETE", b"TRACE"]
@@ -223,9 +225,11 @@ def parse_uri(uri):
         q = uri.find(b":")
         if q == -1:
             start = 0
-        else:
+        elif SCHEME.match(uri, 0, q):
             scheme = uri[:q]
             start = q + 1
+        else:
+            start = 0
         end = len(uri)
 
         # Fragment
@@ -265,7 +269,7 @@ def parse_uri_authority(authority):
             authority = bstr(authority)
 
         # User info
-        p = authority.find(b"@")
+        p = authority.rfind(b"@")
         if p != -1:
             user_info = authority[:p]
 
