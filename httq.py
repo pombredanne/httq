@@ -958,17 +958,15 @@ else:
 class Resource(object):
 
     def __init__(self, uri, **headers):
-        if not isinstance(uri, bytes):
-            uri = bstr(uri)
-        parsed = urlparse(uri)
-        if parsed.scheme == b"http":
-            self.http = HTTP(parsed.netloc, **headers)
-            self.path = bstr(parsed.path)  # TODO: include querystring
-        elif parsed.scheme == b"https":
-            self.http = HTTPS(parsed.netloc, **headers)
-            self.path = bstr(parsed.path)  # TODO: include querystring
+        scheme, authority, path, query, fragment = parse_uri(uri)
+        if scheme == b"http":
+            self.http = HTTP(authority, **headers)
+            self.path = bstr(path)  # TODO: include querystring
+        elif scheme == b"https":
+            self.http = HTTPS(authority, **headers)
+            self.path = bstr(path)  # TODO: include querystring
         else:
-            raise ValueError("Unsupported scheme '%s'" % parsed.scheme)
+            raise ValueError("Unsupported scheme '%s'" % scheme)
 
     def get(self, **headers):
         http = self.http
@@ -1049,47 +1047,14 @@ class ConnectionError(IOError):
         super(ConnectionError, self).__init__(*args, **kwargs)
 
 
-def main2():
-    script, opts, args = sys.argv[0], {}, []
-    for arg in sys.argv[1:]:
-        if arg.startswith("-"):
-            opts[arg] = None
-        else:
-            args.append(arg)
-    url = args[0]
-    parsed = urlparse(url)
-    http = HTTP(parsed.netloc)
-    if parsed.query:
-        relative_url = "%s?%s" % (parsed.path, parsed.query)
-    else:
-        relative_url = parsed.path
-    http.get(relative_url)
-    print(http.response().readall())
-
-
-def main3():
-    script, opts, args = sys.argv[0], {}, []
-    for arg in sys.argv[1:]:
-        if arg.startswith("-"):
-            opts[arg] = None
-        else:
-            args.append(arg)
-    url = args[0].encode("ISO-8859-1")
-    parsed = urlparse(url)
-    http = HTTP(parsed.netloc)
-    if parsed.query:
-        relative_url = "%s?%s" % (parsed.path, parsed.query)
-    else:
-        relative_url = parsed.path
-    http.get(relative_url)
-    print(http.response().readall().decode("ISO-8859-1"))
-
-
 def main():
-    if sys.version_info >= (3,):
-        main3()
-    else:
-        main2()
+    script, opts, args = sys.argv[0], {}, []
+    for arg in sys.argv[1:]:
+        if arg.startswith("-"):
+            opts[arg] = None
+        else:
+            args.append(arg)
+    print(get(args[0]).content)
 
 
 if __name__ == "__main__":
