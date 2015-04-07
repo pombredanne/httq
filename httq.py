@@ -295,6 +295,8 @@ class HTTP(object):
     DEFAULT_PORT = 80
 
     _socket = None
+    _send = None
+    _recv = None
     _user_info = None
     _host = None
     _port = None
@@ -344,7 +346,7 @@ class HTTP(object):
         if sys.version_info >= (3,):
             return "<%s>" % " ".join(param.decode("UTF-8") for param in params)
         else:
-            return "<%s>" % " ".join(param for param in params)
+            return "<%s>" % " ".join(params)
 
     def __enter__(self):
         return self
@@ -353,11 +355,12 @@ class HTTP(object):
         # finish reading or writing
         pass
 
-    def _recv(self, n):
+    def _receive(self, n):
         s = self._socket
+        recv = self._recv
         ready_to_read, _, _ = select((s,), (), (), 0)
         if ready_to_read:
-            data = s.recv(n)
+            data = recv(n)
             data_length = len(data)
             if data_length == 0:
                 raise ConnectionError("Peer has closed connection")
@@ -367,22 +370,22 @@ class HTTP(object):
             return 0
 
     def _read(self, n):
-        recv = self._recv
+        receive = self._receive
         required = n - len(self._received)
         while required > 0:
             if required > DEFAULT_BUFFER_SIZE:
-                required -= recv(required)
+                required -= receive(required)
             elif required > 0:
-                required -= recv(DEFAULT_BUFFER_SIZE)
+                required -= receive(DEFAULT_BUFFER_SIZE)
         received = self._received
         data, self._received = received[:n], received[n:]
         return data
 
     def _read_line(self):
-        recv = self._recv
+        receive = self._receive
         eol = self._received.find(b"\r\n")
         while eol == -1:
-            while recv(DEFAULT_BUFFER_SIZE) == 0:
+            while receive(DEFAULT_BUFFER_SIZE) == 0:
                 pass
             eol = self._received.find(b"\r\n")
         received = self._received
@@ -401,6 +404,8 @@ class HTTP(object):
 
     def _connect(self, host, port):
         self._socket = socket.create_connection((host, port or self.DEFAULT_PORT))
+        self._send = self._socket.sendall
+        self._recv = self._socket.recv
         self._received = b""
         del self._requests[:]
 
@@ -446,6 +451,8 @@ class HTTP(object):
             self._socket.shutdown(socket.SHUT_RDWR)
             self._socket.close()
             self._socket = None
+            self._send = None
+            self._recv = None
         self._received = b""
         del self._requests[:]
 
@@ -541,8 +548,7 @@ class HTTP(object):
 
         # Send
         try:
-            joined = b"".join(data)
-            self._socket.sendall(joined)
+            self._send(b"".join(data))
         except socket.error:
             raise ConnectionError("Peer has closed connection")
         else:
@@ -666,8 +672,8 @@ class HTTP(object):
             if chunk_length == 0:
                 self._writable = False
                 break
-        joined = b"".join(data)
-        self._socket.sendall(joined)
+
+        self._send(b"".join(data))
 
         return self
 
@@ -783,7 +789,7 @@ class HTTP(object):
         if not self._readable:
             raise IOError("No content to read")
 
-        recv = self._recv
+        recv = self._receive
         read = self._read
         read_line = self._read_line
 
