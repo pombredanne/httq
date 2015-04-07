@@ -350,7 +350,7 @@ class HTTP(object):
         if sys.version_info >= (3,):
             return "<%s>" % " ".join(param.decode("UTF-8") for param in params)
         else:
-            return "<%s>" % " ".join(params)
+            return "<%s>" % b" ".join(params)
 
     def __enter__(self):
         return self
