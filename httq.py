@@ -23,10 +23,6 @@ import re
 from select import select
 import socket
 import sys
-try:
-    from urllib.parse import urlparse
-except ImportError:
-    from urlparse import urlparse
 
 try:
     from bs4 import BeautifulSoup
