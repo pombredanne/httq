@@ -506,7 +506,9 @@ class HTTP(object):
             except KeyError:
                 method = bstr(method)
 
-        if not isinstance(url, bytes):
+        if not url:
+            url = b"/"
+        elif not isinstance(url, bytes):
             url = bstr(url)
 
         # Request line
