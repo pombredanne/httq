@@ -167,6 +167,9 @@ REQUEST_HEADERS = {
 STATUS_CODES = {bstr(code): code for code in range(100, 600)}
 NO_CONTENT_STATUS_CODES = list(range(100, 200)) + [204, 304]
 
+READ_CHUNKED = object()
+READ_UNTIL_CLOSED = object()
+
 
 # Exported helper functions
 
@@ -317,8 +320,6 @@ class HTTP(object):
     _status_code = None
     _reason = None
     _response_headers = {}
-    _content_length = None
-    _chunked = None
     _content = b""
     _content_type = None
     _encoding = None
@@ -512,7 +513,7 @@ class HTTP(object):
             url = bstr(url)
 
         # Request line
-        data = [method, b" ", url, b" HTTP/1.1\r\n"]
+        data = [method, b" ", url, b" ", b"HTTP/1.1", b"\r\n"]
 
         # Common headers
         connection_headers = self._connection_headers
@@ -718,9 +719,7 @@ class HTTP(object):
 
         # Headers
         headers.clear()
-        readable = status_code not in NO_CONTENT_STATUS_CODES
-        content_length = None
-        chunked = False
+        readable = None if status_code in NO_CONTENT_STATUS_CODES else READ_UNTIL_CLOSED
         while True:
             header_line = read_line()
             if header_line == b"":
@@ -734,17 +733,14 @@ class HTTP(object):
             headers[key] = value
             if is_head_response:
                 pass
-            elif key == b"Content-Length":
+            elif key == b"Content-Length" and readable is not READ_CHUNKED:
                 try:
-                    content_length = int(value)
+                    readable = int(value)
                 except (TypeError, ValueError):
                     pass
-                else:
-                    if content_length == 0:
-                        readable = False
             elif key == b"Transfer-Encoding":
                 if value == b"chunked":
-                    chunked = True
+                    readable = READ_CHUNKED
 
         self._content = b""
         self._content_type = None
@@ -752,23 +748,19 @@ class HTTP(object):
         self._typed_content = NotImplemented
 
         if is_head_response:
-            self._readable = False
+            self._readable = None
             self._typed_content = None
             finish = True
 
         elif readable:
-            self._readable = True
-            self._content_length = content_length
-            self._chunked = chunked
+            self._readable = readable
             finish = False
 
         else:
             finish = True
 
         if finish:
-            self._readable = False
-            self._content_length = None
-            self._chunked = None
+            self._readable = None
 
             self._requests.pop(0)
 
@@ -785,7 +777,7 @@ class HTTP(object):
     def readable(self):
         """ Boolean indicating whether response content is currently available to read.
         """
-        return self._readable
+        return bool(self._readable)
 
     def read(self, size=-1):
         # TODO
@@ -795,13 +787,14 @@ class HTTP(object):
         """ Read and return all available response content.
         """
         if not self._readable:
-            raise IOError("No content to read")
+            return b""
 
+        readable = self._readable
         recv = self._receive
         read = self._read
         read_line = self._read_line
 
-        if self._chunked:
+        if readable is READ_CHUNKED:
             # Read until empty chunk
             chunks = []
             chunk_size = -1
@@ -812,26 +805,22 @@ class HTTP(object):
                 read(2)
             self._content = b"".join(chunks)
 
-        elif self._content_length:
-            # Read fixed length
-            self._content = read(self._content_length)
-
-        elif self._readable:
+        elif readable is READ_UNTIL_CLOSED:
             # Read until connection closed
-            chunks = []
             try:
                 while True:
                     available = recv(DEFAULT_BUFFER_SIZE)
                     if available:
-                        chunks.append(self._received)
+                        self._content += self._received
                         self._received = b""
             except ConnectionError:
-                self._content = b"".join(chunks)
+                pass
 
-        self._readable = False
-        self._content_length = None
-        self._chunked = None
+        elif readable:
+            # Read fixed length
+            self._content = read(readable)
 
+        self._readable = None
         self._requests.pop(0)
 
         if self.version == "HTTP/1.0":
