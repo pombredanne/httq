@@ -18,7 +18,7 @@
 
 from base64 import b64encode
 from io import DEFAULT_BUFFER_SIZE
-import json
+from json import dumps as json_dumps, loads as json_loads
 import re
 from select import select
 import socket
@@ -131,15 +131,6 @@ else:
         return hex(n)[2:]
 
 
-def basic_auth(*args):
-    return b"Basic " + b64encode(b":".join(map(bstr, args)))
-
-
-def internet_time(value):
-    # TODO
-    return bstr(value)
-
-
 REQUEST_HEADERS = {
     "accept": b"Accept",
     "accept_charset": b"Accept-Charset",
@@ -175,6 +166,18 @@ REQUEST_HEADERS = {
 
 STATUS_CODES = {bstr(code): code for code in range(100, 600)}
 NO_CONTENT_STATUS_CODES = list(range(100, 200)) + [204, 304]
+
+
+# Exported helper functions
+
+
+def basic_auth(*args):
+    return b"Basic " + b64encode(b":".join(map(bstr, args)))
+
+
+def internet_time(value):
+    # TODO
+    return bstr(value)
 
 
 def parse_header(value):
@@ -283,6 +286,9 @@ def parse_uri_authority(authority):
                 port = authority[q:]
 
     return user_info, host, port
+
+
+# Main classes
 
 
 class HTTP(object):
@@ -473,7 +479,7 @@ class HTTP(object):
 
         >>> http.request(b'GET', '/foo/1', b'')
 
-        >>> http.request(b'POST', '/foo/', b'{"foo": "bar"}', content_type=b'application/json')
+        >>> http.request(b'POST', '/foo/', {"foo": "bar"})
 
         Chunked requests can be initiated by passing :const:`None` to
         the `body` argument (either explicitly or using hte default
@@ -532,9 +538,9 @@ class HTTP(object):
         else:
             # Fixed-length content
             if isinstance(body, dict):
-                request_headers[b"Content-Type"] = b"application/json"
-                data += [b"Content-Type: application/json\r\n"]
-                body = json.dumps(body, ensure_ascii=True, separators=",:").encode("UTF-8")
+                request_headers[b"Content-Type"] = b"application/json; charset=UTF-8"
+                data.append(b"Content-Type: application/json; charset=UTF-8\r\n")
+                body = json_dumps(body, ensure_ascii=True).encode("UTF-8")
             elif not isinstance(body, bytes):
                 body = bstr(body)
             content_length = len(body)
@@ -919,7 +925,7 @@ class HTTP(object):
             elif content_type.startswith("text/"):
                 self._typed_content = self._content.decode(self.encoding)
             elif content_type == "application/json":
-                self._typed_content = json.loads(self._content.decode(self.encoding))
+                self._typed_content = json_loads(self._content.decode(self.encoding))
             else:
                 self._typed_content = self._content
         return self._typed_content
