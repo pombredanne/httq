@@ -66,7 +66,7 @@ class ConnectTestCase(TestCase):
 class GetMethodTestCase(TestCase):
 
     def test_can_use_get_method_long_hand(self):
-        http = HTTP(b"httq.io:8080")
+        http = HTTP(b"httq.io")
         http.get(b"/hello")
         http.response()
         assert http.readable()
@@ -79,10 +79,10 @@ class GetMethodTestCase(TestCase):
         http.close()
 
     def test_can_use_get_method_short_hand(self):
-        assert HTTP(b"httq.io:8080").get(b"/hello").response().content == "hello, world"
+        assert HTTP(b"httq.io").get(b"/hello").response().content == "hello, world"
 
     def test_can_use_get_method_with_unicode_args(self):
-        http = HTTP(u"httq.io:8080")
+        http = HTTP(u"httq.io")
         http.get(u"/hello").response()
         assert http.status_code == 200
         assert http.reason == "OK"

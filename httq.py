@@ -17,6 +17,7 @@
 
 
 from base64 import b64encode
+from collections import deque
 from io import DEFAULT_BUFFER_SIZE
 from json import dumps as json_dumps, loads as json_loads
 import re
@@ -169,6 +170,25 @@ NO_CONTENT_STATUS_CODES = list(range(100, 200)) + [204, 304]
 
 READ_CHUNKED = object()
 READ_UNTIL_CLOSED = object()
+
+
+# Log functions
+
+
+log = deque()
+log_write = log.append
+log_read = log.popleft
+
+
+def log_dump(out=sys.stdout):
+    while log:
+        line = log_read()
+        try:
+            line = b"".join(line)
+        except TypeError:
+            pass
+        out.write(line.decode("UTF-8"))
+        out.write("\r\n")
 
 
 # Exported helper functions
@@ -327,6 +347,10 @@ class HTTP(object):
     _typed_content = None
 
     def __init__(self, authority=None, **headers):
+        self._connection_headers = {}
+        self._requests = []
+        self._chunks = []
+        self._response_headers = {}
         if authority:
             self.connect(authority)
         if headers:
@@ -426,7 +450,7 @@ class HTTP(object):
             self._connection_headers[name] = value
 
     def _connect(self, host, port):
-        self._socket = socket.create_connection((host, port or self.DEFAULT_PORT))
+        self._socket = socket.create_connection((host, port))
         self._send = self._socket.sendall
         self._recv = self._socket.recv
         self._received = b""
@@ -453,18 +477,18 @@ class HTTP(object):
         if headers:
             self._add_connection_headers(**headers)
 
-        self._connect(host, port)
-
         self._user_info = user_info
         self._host = host
-        self._port = port
+        self._port = port or self.DEFAULT_PORT
+
+        self._connect(self._host, self._port)
 
     def reconnect(self):
         """ Re-establish a connection to the same remote host.
         """
         if self._socket:
+            self._socket.shutdown(socket.SHUT_RDWR)
             self._socket.close()
-            self._socket = None
         self._connect(self._host, self._port)
 
     def close(self):
@@ -473,9 +497,9 @@ class HTTP(object):
         if self._socket:
             self._socket.shutdown(socket.SHUT_RDWR)
             self._socket.close()
-            self._socket = None
-            self._send = None
-            self._recv = None
+        self._socket = None
+        self._send = None
+        self._recv = None
         self._received = b""
         del self._requests[:]
 
@@ -573,11 +597,14 @@ class HTTP(object):
 
         # Send
         try:
-            self._send(b"".join(data))
+            data = b"".join(data)
+            self._send(data)
         except socket.error:
             raise ConnectionError("Peer has closed connection")
         else:
             self._requests.append((method, url, request_headers))
+            for line in data.splitlines(False):
+                log_write((b"> ", line))
 
         return self
 
@@ -719,6 +746,7 @@ class HTTP(object):
         is_head_response = self.request_method == b"HEAD"
 
         status_line = read_line()
+        log_write((b"< ", status_line))
 
         # HTTP version
         p = status_line.find(b" ")
@@ -738,6 +766,7 @@ class HTTP(object):
         readable = None if status_code in NO_CONTENT_STATUS_CODES else READ_UNTIL_CLOSED
         while True:
             header_line = read_line()
+            log_write((b"< ", header_line))
             if header_line == b"":
                 break
             delimiter = header_line.find(b":")
@@ -825,6 +854,7 @@ class HTTP(object):
                         chunks.append(read(chunk_size))
                         available += chunk_size
                     read(2)
+                    log_write((b"< ", b"[chunk ", bstr(chunk_size), b"]"))
                     if available >= size:
                         break
                 else:
@@ -833,21 +863,23 @@ class HTTP(object):
             elif readable is READ_UNTIL_CLOSED:
                 try:
                     while True:
-                        bytes_received = recv(DEFAULT_BUFFER_SIZE)
-                        if bytes_received:
+                        chunk_size = recv(DEFAULT_BUFFER_SIZE)
+                        log_write((b"< ", b"[bytes ", bstr(chunk_size), b"]"))
+                        if chunk_size:
                             chunks.append(self._received)
                             self._received = b""
-                            available += bytes_received
+                            available += chunk_size
                             if available >= size:
                                 break
                 except ConnectionError:
                     self._readable = None
 
             elif readable:
-                n = size - available
-                chunk = read_up_to(n)
+                chunk = read_up_to(size - available)
+                chunk_size = len(chunk)
+                log_write((b"< ", b"[bytes ", bstr(chunk_size), b"]"))
                 chunks.append(chunk)
-                self._readable -= n
+                self._readable -= chunk_size
 
             if len(chunks) != 1:
                 chunks[:] = [b"".join(chunks)]
@@ -891,21 +923,25 @@ class HTTP(object):
                 if chunk_size != 0:
                     chunks.append(read(chunk_size))
                 read(2)
+                log_write((b"< ", b"[chunk ", bstr(chunk_size), b"]"))
             else:
                 self._readable = None
 
         elif readable is READ_UNTIL_CLOSED:
             try:
                 while True:
-                    bytes_received = recv(DEFAULT_BUFFER_SIZE)
-                    if bytes_received:
+                    chunk_size = recv(DEFAULT_BUFFER_SIZE)
+                    log_write((b"< ", b"[bytes ", bstr(chunk_size), b"]"))
+                    if chunk_size:
                         chunks.append(self._received)
                         self._received = b""
             except ConnectionError:
                 self._readable = None
 
         elif readable:
-            chunks.append(read(readable))
+            chunk = read(readable)
+            log_write((b"< ", b"[bytes ", bstr(readable), b"]"))
+            chunks.append(chunk)
             self._readable = 0
 
         self._requests.pop(0)

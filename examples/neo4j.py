@@ -5,7 +5,7 @@
 import json
 import os
 
-from httq import HTTP
+from httq import HTTP, log_dump
 
 
 http = HTTP(b"neo4j:password@localhost:7474", user_agent=b"httq/0", content_type=b"application/json")
@@ -29,6 +29,8 @@ def query():
 def main():
     for i in range(loops):
         query()
+    if loops == 1:
+        log_dump()
 
 
 if __name__ == "__main__":
