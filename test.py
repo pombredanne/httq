@@ -106,6 +106,55 @@ class GetMethodTestCase(TestCase):
         assert len(http._requests) == 0
         http.close()
 
+    def test_can_read_in_bits(self):
+        http = HTTP(b"httq.io")
+        http.get(b"/hello").response()
+        assert http.readable()
+        assert http.status_code == 200
+        assert http.reason == "OK"
+        assert http.content_type == "text/plain"
+        assert http.readable()
+        assert http.read(5) == b"hello"
+        assert http.readable()
+        assert http.read(5) == b", wor"
+        assert http.readable()
+        assert http.read(5) == b"ld"
+        assert not http.readable()
+        assert http.read(5) == b""
+        assert http.content == "hello, world"
+        http.close()
+
+    def test_can_read_some_then_all_the_rest(self):
+        http = HTTP(b"httq.io")
+        http.get(b"/hello").response()
+        assert http.readable()
+        assert http.status_code == 200
+        assert http.reason == "OK"
+        assert http.content_type == "text/plain"
+        assert http.readable()
+        assert http.read(5) == b"hello"
+        assert http.readable()
+        assert http.readall() == b", world"
+        assert not http.readable()
+        assert http.read(5) == b""
+        assert http.content == "hello, world"
+        http.close()
+
+    def test_can_read_some_then_all_the_rest_through_content(self):
+        http = HTTP(b"httq.io")
+        http.get(b"/hello").response()
+        assert http.readable()
+        assert http.status_code == 200
+        assert http.reason == "OK"
+        assert http.content_type == "text/plain"
+        assert http.readable()
+        assert http.read(5) == b"hello"
+        assert http.readable()
+        assert http.content == "hello, world"
+        assert not http.readable()
+        assert http.read(5) == b""
+        http.close()
+
 
 if __name__ == "__main__":
     main()
