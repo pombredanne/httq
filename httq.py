@@ -316,6 +316,7 @@ class HTTP(object):
     _requests = []
 
     _readable = False
+    _chunks = []
     _version = None
     _status_code = None
     _reason = None
@@ -384,6 +385,21 @@ class HTTP(object):
                 required -= receive(required)
             elif required > 0:
                 required -= receive(DEFAULT_BUFFER_SIZE)
+        received = self._received
+        data, self._received = received[:n], received[n:]
+        return data
+
+    def _read_up_to(self, n):
+        receive = self._receive
+        required = n - len(self._received)
+        while required > 0:
+            try:
+                if required > DEFAULT_BUFFER_SIZE:
+                    required -= receive(required)
+                elif required > 0:
+                    required -= receive(DEFAULT_BUFFER_SIZE)
+            except ConnectionError:
+                break
         received = self._received
         data, self._received = received[:n], received[n:]
         return data
@@ -780,58 +796,131 @@ class HTTP(object):
         return bool(self._readable)
 
     def read(self, size=-1):
-        # TODO
-        raise NotImplementedError()
+        if size == -1:
+            return self.readall()
+
+        readable = self._readable
+        chunks = self._chunks
+
+        if len(chunks) != 1:
+            chunks[:] = [b"".join(chunks)]
+
+        available = len(chunks[0])
+
+        if not readable and not available:
+            return b""
+
+        if available < size:
+
+            recv = self._receive
+            read = self._read
+            read_up_to = self._read_up_to
+            read_line = self._read_line
+
+            if readable is READ_CHUNKED:
+                chunk_size = -1
+                while chunk_size != 0:
+                    chunk_size = int(read_line(), 16)
+                    if chunk_size != 0:
+                        chunks.append(read(chunk_size))
+                        available += chunk_size
+                    read(2)
+                    if available >= size:
+                        break
+                else:
+                    self._readable = None
+
+            elif readable is READ_UNTIL_CLOSED:
+                try:
+                    while True:
+                        bytes_received = recv(DEFAULT_BUFFER_SIZE)
+                        if bytes_received:
+                            chunks.append(self._received)
+                            self._received = b""
+                            available += bytes_received
+                            if available >= size:
+                                break
+                except ConnectionError:
+                    self._readable = None
+
+            elif readable:
+                n = size - available
+                chunk = read_up_to(n)
+                chunks.append(chunk)
+                self._readable -= n
+
+            if len(chunks) != 1:
+                chunks[:] = [b"".join(chunks)]
+
+            if not self._readable:
+                self._requests.pop(0)
+                if self.version == "HTTP/1.0":
+                    connection = self._response_headers.get(b"Connection", b"close")
+                else:
+                    connection = self._response_headers.get(b"Connection", b"keep-alive")
+                if connection == b"close":
+                    self.close()
+
+        s, chunks[0] = chunks[0][:size], chunks[0][size:]
+        self._content += s
+
+        return s
 
     def readall(self):
         """ Read and return all available response content.
         """
-        if not self._readable:
+        readable = self._readable
+        chunks = self._chunks
+
+        if len(chunks) != 1:
+            chunks[:] = [b"".join(chunks)]
+
+        available = len(chunks[0])
+
+        if not readable and not available:
             return b""
 
-        readable = self._readable
         recv = self._receive
         read = self._read
         read_line = self._read_line
 
         if readable is READ_CHUNKED:
-            # Read until empty chunk
-            chunks = []
             chunk_size = -1
             while chunk_size != 0:
                 chunk_size = int(read_line(), 16)
                 if chunk_size != 0:
                     chunks.append(read(chunk_size))
                 read(2)
-            self._content = b"".join(chunks)
+            else:
+                self._readable = None
 
         elif readable is READ_UNTIL_CLOSED:
-            # Read until connection closed
             try:
                 while True:
-                    available = recv(DEFAULT_BUFFER_SIZE)
-                    if available:
-                        self._content += self._received
+                    bytes_received = recv(DEFAULT_BUFFER_SIZE)
+                    if bytes_received:
+                        chunks.append(self._received)
                         self._received = b""
             except ConnectionError:
-                pass
+                self._readable = None
 
         elif readable:
-            # Read fixed length
-            self._content = read(readable)
+            chunks.append(read(readable))
+            self._readable = 0
 
-        self._readable = None
         self._requests.pop(0)
-
         if self.version == "HTTP/1.0":
             connection = self._response_headers.get(b"Connection", b"close")
         else:
             connection = self._response_headers.get(b"Connection", b"keep-alive")
-
         if connection == b"close":
             self.close()
 
-        return self._content
+        s = b"".join(chunks)
+        self._content += s
+        del chunks[:]
+
+        return s
 
     def readinto(self, b):
         # TODO
