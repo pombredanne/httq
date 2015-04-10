@@ -439,6 +439,17 @@ class HTTP(object):
         data, self._received = received[:eol], received[(eol + 2):]
         return data
 
+    def _read_lines(self):
+        receive = self._receive
+        eol = self._received.find(b"\r\n\r\n")
+        while eol == -1:
+            while receive(DEFAULT_BUFFER_SIZE) == 0:
+                pass
+            eol = self._received.find(b"\r\n\r\n")
+        received = self._received
+        data, self._received = received[:eol], received[(eol + 4):]
+        return data.splitlines(False)
+
     def _add_connection_headers(self, **headers):
         for name, value in headers.items():
             try:
@@ -603,8 +614,9 @@ class HTTP(object):
             raise ConnectionError("Peer has closed connection")
         else:
             self._requests.append((method, url, request_headers))
-            for line in data.splitlines(False):
-                log_write((b"> ", line))
+            if __debug__:
+                for line in data.splitlines(False):
+                    log_write((b"> ", line))
 
         return self
 
@@ -740,13 +752,16 @@ class HTTP(object):
         if self._readable:
             self.readall()
 
-        read_line = self._read_line
+        read_lines = self._read_lines
         headers = self._response_headers
 
         is_head_response = self.request_method == b"HEAD"
 
-        status_line = read_line()
-        log_write((b"< ", status_line))
+        header_lines = read_lines()
+
+        status_line = header_lines.pop(0)
+        if __debug__:
+            log_write((b"< ", status_line))
 
         # HTTP version
         p = status_line.find(b" ")
@@ -764,11 +779,9 @@ class HTTP(object):
         # Headers
         headers.clear()
         readable = None if status_code in NO_CONTENT_STATUS_CODES else READ_UNTIL_CLOSED
-        while True:
-            header_line = read_line()
-            log_write((b"< ", header_line))
-            if header_line == b"":
-                break
+        for header_line in header_lines:
+            if __debug__:
+                log_write((b"< ", header_line))
             delimiter = header_line.find(b":")
             key = header_line[:delimiter].title()
             p = delimiter + 1
@@ -808,12 +821,10 @@ class HTTP(object):
             self._readable = None
 
             self._requests.pop(0)
-
             if self.version == "HTTP/1.0":
                 connection = self._response_headers.get(b"Connection", b"close")
             else:
                 connection = self._response_headers.get(b"Connection", b"keep-alive")
-
             if connection == b"close":
                 self.close()
 
@@ -854,7 +865,8 @@ class HTTP(object):
                         chunks.append(read(chunk_size))
                         available += chunk_size
                     read(2)
-                    log_write((b"< ", b"[chunk ", bstr(chunk_size), b"]"))
+                    if __debug__:
+                        log_write((b"< ", b"[chunk ", bstr(chunk_size), b"]"))
                     if available >= size:
                         break
                 else:
@@ -864,7 +876,8 @@ class HTTP(object):
                 try:
                     while True:
                         chunk_size = recv(DEFAULT_BUFFER_SIZE)
-                        log_write((b"< ", b"[bytes ", bstr(chunk_size), b"]"))
+                        if __debug__:
+                            log_write((b"< ", b"[bytes ", bstr(chunk_size), b"]"))
                         if chunk_size:
                             chunks.append(self._received)
                             self._received = b""
@@ -877,7 +890,8 @@ class HTTP(object):
             elif readable:
                 chunk = read_up_to(size - available)
                 chunk_size = len(chunk)
-                log_write((b"< ", b"[bytes ", bstr(chunk_size), b"]"))
+                if __debug__:
+                    log_write((b"< ", b"[bytes ", bstr(chunk_size), b"]"))
                 chunks.append(chunk)
                 self._readable -= chunk_size
 
@@ -923,7 +937,8 @@ class HTTP(object):
                 if chunk_size != 0:
                     chunks.append(read(chunk_size))
                 read(2)
-                log_write((b"< ", b"[chunk ", bstr(chunk_size), b"]"))
+                if __debug__:
+                    log_write((b"< ", b"[chunk ", bstr(chunk_size), b"]"))
             else:
                 self._readable = None
 
@@ -931,7 +946,8 @@ class HTTP(object):
             try:
                 while True:
                     chunk_size = recv(DEFAULT_BUFFER_SIZE)
-                    log_write((b"< ", b"[bytes ", bstr(chunk_size), b"]"))
+                    if __debug__:
+                        log_write((b"< ", b"[bytes ", bstr(chunk_size), b"]"))
                     if chunk_size:
                         chunks.append(self._received)
                         self._received = b""
@@ -940,7 +956,8 @@ class HTTP(object):
 
         elif readable:
             chunk = read(readable)
-            log_write((b"< ", b"[bytes ", bstr(readable), b"]"))
+            if __debug__:
+                log_write((b"< ", b"[bytes ", bstr(readable), b"]"))
             chunks.append(chunk)
             self._readable = 0
 
