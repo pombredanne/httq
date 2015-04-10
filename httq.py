@@ -475,7 +475,10 @@ class HTTP(object):
 
     def _connect(self, host, port):
         self._socket = socket.create_connection((host, port))
-        self._send = self._socket.sendmsg
+        try:
+            self._send = self._socket.sendmsg
+        except AttributeError:
+            self._send = lambda buffers: map(self._socket.send, buffers)
         self._recv = self._socket.recv
         self._received = b""
         del self._requests[:]
