@@ -434,15 +434,13 @@ class HTTP(object):
         recv = self._recv
         eol = self._received.find(b"\r\n")
         while eol == -1:
-            chunks = []
             ready_to_read, _, _ = select((s,), (), (), 0)
             while ready_to_read:
                 data = recv(DEFAULT_BUFFER_SIZE)
                 if data == b"":
                     raise ConnectionError("Peer has closed connection")
-                chunks.append(data)
+                self._received += data
                 ready_to_read, _, _ = select((s,), (), (), 0)
-            self._received += b"".join(chunks)
             eol = self._received.find(b"\r\n")
         received = self._received
         data, self._received = received[:eol], received[(eol + 2):]
@@ -453,15 +451,13 @@ class HTTP(object):
         recv = self._recv
         eol = self._received.find(b"\r\n\r\n")
         while eol == -1:
-            chunks = []
             ready_to_read, _, _ = select((s,), (), (), 0)
             while ready_to_read:
                 data = recv(DEFAULT_BUFFER_SIZE)
                 if data == b"":
                     raise ConnectionError("Peer has closed connection")
-                chunks.append(data)
+                self._received += data
                 ready_to_read, _, _ = select((s,), (), (), 0)
-            self._received += b"".join(chunks)
             eol = self._received.find(b"\r\n\r\n")
         received = self._received
         data, self._received = received[:eol], received[(eol + 4):]
@@ -479,7 +475,7 @@ class HTTP(object):
 
     def _connect(self, host, port):
         self._socket = socket.create_connection((host, port))
-        self._send = self._socket.sendall
+        self._send = self._socket.sendmsg
         self._recv = self._socket.recv
         self._received = b""
         del self._requests[:]
@@ -625,15 +621,14 @@ class HTTP(object):
 
         # Send
         try:
-            data = b"".join(data)
             self._send(data)
         except socket.error:
             raise ConnectionError("Peer has closed connection")
         else:
             self._requests.append((method, url, request_headers))
-            if __debug__:
-                for line in data.splitlines(False):
-                    log_write((b"> ", line))
+            # if __debug__:
+            #     for line in data.splitlines(False):
+            #         log_write((b"> ", line))
 
         return self
 
@@ -749,12 +744,14 @@ class HTTP(object):
         for chunk in chunks:
             assert isinstance(chunk, bytes)
             chunk_length = len(chunk)
-            data += [hexb(chunk_length), b"\r\n", chunk, b"\r\n"]
             if chunk_length == 0:
+                data += [hexb(chunk_length), b"\r\n\r\n"]
                 self._writable = False
                 break
+            else:
+                data += [hexb(chunk_length), b"\r\n", chunk, b"\r\n"]
 
-        self._send(b"".join(data))
+        self._send(data)
 
         return self
 
