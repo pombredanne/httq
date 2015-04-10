@@ -29,8 +29,8 @@ def query():
 def main():
     for i in range(loops):
         query()
-    if loops == 1:
-        log_dump()
+    #if loops == 1:
+    #    log_dump()
 
 
 if __name__ == "__main__":
