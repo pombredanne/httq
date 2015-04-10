@@ -419,9 +419,10 @@ class HTTP(object):
         while required > 0:
             try:
                 if required > DEFAULT_BUFFER_SIZE:
-                    required -= receive(required)
+                    size = required
                 elif required > 0:
-                    required -= receive(DEFAULT_BUFFER_SIZE)
+                    size = DEFAULT_BUFFER_SIZE
+                required -= receive(size)
             except ConnectionError:
                 break
         received = self._received
@@ -429,22 +430,38 @@ class HTTP(object):
         return data
 
     def _read_line(self):
-        receive = self._receive
+        s = self._socket
+        recv = self._recv
         eol = self._received.find(b"\r\n")
         while eol == -1:
-            while receive(DEFAULT_BUFFER_SIZE) == 0:
-                pass
+            chunks = []
+            ready_to_read, _, _ = select((s,), (), (), 0)
+            while ready_to_read:
+                data = recv(DEFAULT_BUFFER_SIZE)
+                if data == b"":
+                    raise ConnectionError("Peer has closed connection")
+                chunks.append(data)
+                ready_to_read, _, _ = select((s,), (), (), 0)
+            self._received += b"".join(chunks)
             eol = self._received.find(b"\r\n")
         received = self._received
         data, self._received = received[:eol], received[(eol + 2):]
         return data
 
     def _read_lines(self):
-        receive = self._receive
+        s = self._socket
+        recv = self._recv
         eol = self._received.find(b"\r\n\r\n")
         while eol == -1:
-            while receive(DEFAULT_BUFFER_SIZE) == 0:
-                pass
+            chunks = []
+            ready_to_read, _, _ = select((s,), (), (), 0)
+            while ready_to_read:
+                data = recv(DEFAULT_BUFFER_SIZE)
+                if data == b"":
+                    raise ConnectionError("Peer has closed connection")
+                chunks.append(data)
+                ready_to_read, _, _ = select((s,), (), (), 0)
+            self._received += b"".join(chunks)
             eol = self._received.find(b"\r\n\r\n")
         received = self._received
         data, self._received = received[:eol], received[(eol + 4):]
