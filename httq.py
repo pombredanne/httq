@@ -446,23 +446,6 @@ class HTTP(object):
         data, self._received = received[:eol], received[(eol + 2):]
         return data
 
-    def _read_lines(self):
-        s = self._socket
-        recv = self._recv
-        eol = self._received.find(b"\r\n\r\n")
-        while eol == -1:
-            ready_to_read, _, _ = select((s,), (), (), 0)
-            while ready_to_read:
-                data = recv(DEFAULT_BUFFER_SIZE)
-                if data == b"":
-                    raise ConnectionError("Peer has closed connection")
-                self._received += data
-                ready_to_read, _, _ = select((s,), (), (), 0)
-            eol = self._received.find(b"\r\n\r\n")
-        received = self._received
-        data, self._received = received[:eol], received[(eol + 4):]
-        return data.splitlines(False)
-
     def _add_connection_headers(self, **headers):
         for name, value in headers.items():
             try:
@@ -769,12 +752,23 @@ class HTTP(object):
         if self._readable:
             self.readall()
 
-        read_lines = self._read_lines
-        headers = self._response_headers
+        s = self._socket
+        recv = self._recv
+        eol = self._received.find(b"\r\n\r\n")
+        while eol == -1:
+            ready_to_read, _, _ = select((s,), (), (), 0)
+            while ready_to_read:
+                data = recv(DEFAULT_BUFFER_SIZE)
+                if data == b"":
+                    raise ConnectionError("Peer has closed connection")
+                self._received += data
+                ready_to_read, _, _ = select((s,), (), (), 0)
+            eol = self._received.find(b"\r\n\r\n")
+        received = self._received
+        data, self._received = received[:eol], received[(eol + 4):]
+        header_lines = data.splitlines(False)
 
         is_head_response = self.request_method == b"HEAD"
-
-        header_lines = read_lines()
 
         status_line = header_lines.pop(0)
         if __debug__:
@@ -794,6 +788,7 @@ class HTTP(object):
         self._reason = status_line[(q + 1):]
 
         # Headers
+        headers = self._response_headers
         headers.clear()
         readable = None if status_code in NO_CONTENT_STATUS_CODES else READ_UNTIL_CLOSED
         for header_line in header_lines:
