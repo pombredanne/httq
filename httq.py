@@ -842,7 +842,7 @@ class HTTP(object):
                 connection = self._response_headers.get(b"Connection", b"close")
             else:
                 connection = self._response_headers.get(b"Connection", b"keep-alive")
-            if connection == b"close":
+            if connection.lower() == b"close":
                 self.close()
 
         return self
@@ -983,7 +983,7 @@ class HTTP(object):
             connection = self._response_headers.get(b"Connection", b"close")
         else:
             connection = self._response_headers.get(b"Connection", b"keep-alive")
-        if connection == b"close":
+        if connection.lower() == b"close":
             self.close()
 
         s = b"".join(chunks)
