@@ -405,13 +405,7 @@ class HTTP(object):
         receive = self._receive
         required = n - len(self._received)
         while required > 0:
-            if required > DEFAULT_BUFFER_SIZE:
-                size = required
-            elif required > 0:
-                size = DEFAULT_BUFFER_SIZE
-            else:
-                break
-            required -= receive(size)
+            required -= receive(required if required > DEFAULT_BUFFER_SIZE else DEFAULT_BUFFER_SIZE)
         received = self._received
         data, self._received = received[:n], received[n:]
         return data
@@ -421,13 +415,7 @@ class HTTP(object):
         required = n - len(self._received)
         while required > 0:
             try:
-                if required > DEFAULT_BUFFER_SIZE:
-                    size = required
-                elif required > 0:
-                    size = DEFAULT_BUFFER_SIZE
-                else:
-                    break
-                required -= receive(size)
+                required -= receive(required if required > DEFAULT_BUFFER_SIZE else DEFAULT_BUFFER_SIZE)
             except ConnectionError:
                 break
         received = self._received
