@@ -431,16 +431,18 @@ class HTTP(object):
         eol = self._received.find(b"\r\n")
         while eol == -1:
             ready_to_read, _, _ = select((s,), (), (), 0)
-            while ready_to_read:
-                data = recv(DEFAULT_BUFFER_SIZE)
-                if data == b"":
-                    raise ConnectionError("Peer has closed connection")
-                self._received += data
+            while not ready_to_read:
                 ready_to_read, _, _ = select((s,), (), (), 0)
+            data = recv(DEFAULT_BUFFER_SIZE)
+            if data == b"":
+                raise ConnectionError("Peer has closed connection")
+            self._received += data
             eol = self._received.find(b"\r\n")
         received = self._received
         data, self._received = received[:eol], received[(eol + 2):]
         return data
+    
+    # TODO: _read_chunk
 
     def _add_connection_headers(self, **headers):
         for name, value in headers.items():
