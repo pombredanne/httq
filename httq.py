@@ -387,37 +387,40 @@ class HTTP(object):
         # finish reading or writing
         pass
 
-    def _receive(self, n):
+    def _read(self, n):
         s = self._socket
         recv = self._recv
-        ready_to_read, _, _ = select((s,), (), (), 0)
-        if ready_to_read:
-            data = recv(n)
-            data_length = len(data)
-            if data_length == 0:
-                raise ConnectionError("Peer has closed connection")
-            self._received += data
-            return data_length
-        else:
-            return 0
-
-    def _read(self, n):
-        receive = self._receive
         required = n - len(self._received)
         while required > 0:
-            required -= receive(required if required > DEFAULT_BUFFER_SIZE else DEFAULT_BUFFER_SIZE)
+            ready_to_read, _, _ = select((s,), (), (), 0)
+            while not ready_to_read:
+                ready_to_read, _, _ = select((s,), (), (), 0)
+            data = recv(required if required > DEFAULT_BUFFER_SIZE else DEFAULT_BUFFER_SIZE)
+            if data == b"":
+                raise ConnectionError("Peer has closed connection")
+            self._received += data
+            required -= len(data)
         received = self._received
         data, self._received = received[:n], received[n:]
         return data
 
     def _read_up_to(self, n):
-        receive = self._receive
+        s = self._socket
+        recv = self._recv
         required = n - len(self._received)
         while required > 0:
+            ready_to_read, _, _ = select((s,), (), (), 0)
+            while not ready_to_read:
+                ready_to_read, _, _ = select((s,), (), (), 0)
             try:
-                required -= receive(required if required > DEFAULT_BUFFER_SIZE else DEFAULT_BUFFER_SIZE)
+                data = recv(required if required > DEFAULT_BUFFER_SIZE else DEFAULT_BUFFER_SIZE)
             except ConnectionError:
                 break
+            else:
+                if data == b"":
+                    break
+                self._received += data
+                required -= len(data)
         received = self._received
         data, self._received = received[:n], received[n:]
         return data
@@ -857,7 +860,8 @@ class HTTP(object):
 
         if available < size:
 
-            recv = self._receive
+            s = self._socket
+            recv = self._recv
             read = self._read
             read_up_to = self._read_up_to
             read_line = self._read_line
@@ -878,19 +882,17 @@ class HTTP(object):
                     self._readable = None
 
             elif readable is READ_UNTIL_CLOSED:
-                try:
-                    while True:
-                        chunk_size = recv(DEFAULT_BUFFER_SIZE)
-                        if __debug__:
-                            log_write((b"< ", b"[bytes ", bstr(chunk_size), b"]"))
-                        if chunk_size:
-                            chunks.append(self._received)
-                            self._received = b""
-                            available += chunk_size
-                            if available >= size:
-                                break
-                except ConnectionError:
-                    self._readable = None
+                while True:
+                    ready_to_read, _, _ = select((s,), (), (), 0)
+                    while not ready_to_read:
+                        ready_to_read, _, _ = select((s,), (), (), 0)
+                    data = recv(size)
+                    if data == b"":
+                        self._readable = None
+                        break
+                    chunks.append(data)
+                    if __debug__:
+                        log_write((b"< ", b"[bytes ", bstr(len(data)), b"]"))
 
             elif readable:
                 chunk = read_up_to(size - available)
@@ -931,7 +933,8 @@ class HTTP(object):
         if not readable and not available:
             return b""
 
-        recv = self._receive
+        s = self._socket
+        recv = self._recv
         read = self._read
         read_line = self._read_line
 
@@ -948,16 +951,17 @@ class HTTP(object):
                 self._readable = None
 
         elif readable is READ_UNTIL_CLOSED:
-            try:
-                while True:
-                    chunk_size = recv(DEFAULT_BUFFER_SIZE)
-                    if __debug__:
-                        log_write((b"< ", b"[bytes ", bstr(chunk_size), b"]"))
-                    if chunk_size:
-                        chunks.append(self._received)
-                        self._received = b""
-            except ConnectionError:
-                self._readable = None
+            while True:
+                ready_to_read, _, _ = select((s,), (), (), 0)
+                while not ready_to_read:
+                    ready_to_read, _, _ = select((s,), (), (), 0)
+                data = recv(DEFAULT_BUFFER_SIZE)
+                if data == b"":
+                    self._readable = None
+                    break
+                chunks.append(data)
+                if __debug__:
+                    log_write((b"< ", b"[bytes ", bstr(len(data)), b"]"))
 
         elif readable:
             chunk = read(readable)
