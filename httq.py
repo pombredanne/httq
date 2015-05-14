@@ -22,8 +22,7 @@ from io import DEFAULT_BUFFER_SIZE
 from json import dumps as json_dumps, loads as json_loads
 import re
 from select import select
-from _socket import socket as _socket, AF_INET, SOCK_STREAM, IPPROTO_TCP, TCP_NODELAY, SHUT_RDWR
-import socket
+from socket import socket as _socket, AF_INET, SOCK_STREAM, IPPROTO_TCP, TCP_NODELAY, SHUT_RDWR, error as socket_error
 import sys
 
 try:
@@ -313,9 +312,6 @@ def parse_uri_authority(authority):
     return user_info, host, port
 
 
-# Main classes
-
-
 class SocketError(IOError):
 
     def __init__(self, *args, **kwargs):
@@ -484,7 +480,7 @@ class HTTP(object):
     def __del__(self):
         try:
             self.close()
-        except socket.error:
+        except socket_error:
             pass
 
     def __repr__(self):
