@@ -21,7 +21,7 @@ from collections import deque
 from io import DEFAULT_BUFFER_SIZE
 from json import dumps as json_dumps, loads as json_loads
 import re
-from select import epoll, EPOLLIN
+from select import select
 from _socket import socket as _socket, AF_INET, SOCK_STREAM, IPPROTO_TCP, TCP_NODELAY, SHUT_RDWR
 import socket
 import sys
@@ -326,16 +326,10 @@ class HTTPSocket(_socket):
 
     def __init__(self):
         _socket.__init__(self, AF_INET, SOCK_STREAM)
-        self.epoll = epoll()
 
     def connect(self, address):
         _socket.connect(self, address)
         _socket.setsockopt(self, IPPROTO_TCP, TCP_NODELAY, 1)
-        _socket.setblocking(self, 0)
-
-        f = _socket.fileno(self)
-        self.epoll.register(f, EPOLLIN)
-        poll = self.epoll.poll
 
         raw_send = _socket.send
 
@@ -344,13 +338,13 @@ class HTTPSocket(_socket):
             size = len(view)
             offset = 0
             while offset < size:
-                try:
-                    sent = raw_send(self, view[offset:])
-                    if sent == 0:
-                        raise SocketError("Peer closed connection")
-                    offset += sent
-                except BlockingIOError:
-                    pass
+                _, ready_to_write, _ = select((), (self,), (), 0)
+                while not ready_to_write:
+                    _, ready_to_write, _ = select((), (self,), (), 0)
+                sent = raw_send(self, view[offset:])
+                if sent == 0:
+                    raise SocketError("Peer closed connection")
+                offset += sent
 
         raw_recv = _socket.recv
         received = [b""]  # the functions below assume exactly one item in this list on entry and exit
@@ -358,14 +352,14 @@ class HTTPSocket(_socket):
         def recv_headers(timeout=-1):
             end = received[0].find(b"\r\n\r\n")
             while end == -1:
-                events = poll(timeout)
-                for fileno, event in events:
-                    if fileno == f and event == EPOLLIN:
-                        data = raw_recv(self, 8192)
-                        received[0] += data
-                        end = received[0].find(b"\r\n\r\n")
-                        if data == b"" and end == -1:
-                            raise SocketError("Peer closed connection")
+                ready_to_read, _, _ = select((self,), (), (), 0)
+                while not ready_to_read:
+                    ready_to_read, _, _ = select((self,), (), (), 0)
+                data = raw_recv(self, 8192)
+                received[0] += data
+                end = received[0].find(b"\r\n\r\n")
+                if data == b"" and end == -1:
+                    raise SocketError("Peer closed connection")
             data, received[0] = received[0][:end], received[0][(end + 4):]
             return data.split(b"\r\n")
 
@@ -377,14 +371,14 @@ class HTTPSocket(_socket):
                     received[0] = b""
                 more = True
                 while more:
-                    events = poll(timeout)
-                    for fileno, event in events:
-                        if fileno == f and event == EPOLLIN:
-                            data = raw_recv(self, 8192)
-                            if data == b"":
-                                more = False
-                            else:
-                                yield data
+                    ready_to_read, _, _ = select((self,), (), (), 0)
+                    while not ready_to_read:
+                        ready_to_read, _, _ = select((self,), (), (), 0)
+                    data = raw_recv(self, 8192)
+                    if data == b"":
+                        more = False
+                    else:
+                        yield data
             else:
                 assert length >= 0
                 # receive fixed amount
@@ -395,39 +389,39 @@ class HTTPSocket(_socket):
                         yield data
                         length -= size
                     if length != 0:
-                        events = poll(timeout)
-                        for fileno, event in events:
-                            if fileno == f and event == EPOLLIN:
-                                data = raw_recv(self, 8192)
-                                if data == b"":
-                                    raise SocketError("Peer closed connection")
-                                received[0] += data
+                        ready_to_read, _, _ = select((self,), (), (), 0)
+                        while not ready_to_read:
+                            ready_to_read, _, _ = select((self,), (), (), 0)
+                        data = raw_recv(self, 8192)
+                        if data == b"":
+                            raise SocketError("Peer closed connection")
+                        received[0] += data
 
         def recv_line(timeout=-1):
             end = received[0].find(b"\r\n")
             while end == -1:
-                events = poll(timeout)
-                for fileno, event in events:
-                    if fileno == f and event == EPOLLIN:
-                        data = raw_recv(self, 8192)
-                        received[0] += data
-                        end = received[0].find(b"\r\n")
-                        if data == b"" and end == -1:
-                            raise SocketError("Peer closed connection")
+                ready_to_read, _, _ = select((self,), (), (), 0)
+                while not ready_to_read:
+                    ready_to_read, _, _ = select((self,), (), (), 0)
+                data = raw_recv(self, 8192)
+                received[0] += data
+                end = received[0].find(b"\r\n")
+                if data == b"" and end == -1:
+                    raise SocketError("Peer closed connection")
             data, received[0] = received[0][:end], received[0][(end + 2):]
             return data
 
         def recv_exact(length=-1, timeout=-1):
             available = len(received[0])
             while available < length:
-                events = poll(timeout)
-                for fileno, event in events:
-                    if fileno == f and event == EPOLLIN:
-                        data = raw_recv(self, 8192)
-                        received[0] += data
-                        available += len(data)
-                        if data == b"" and available < length:
-                            raise SocketError("Peer closed connection")
+                ready_to_read, _, _ = select((self,), (), (), 0)
+                while not ready_to_read:
+                    ready_to_read, _, _ = select((self,), (), (), 0)
+                data = raw_recv(self, 8192)
+                received[0] += data
+                available += len(data)
+                if data == b"" and available < length:
+                    raise SocketError("Peer closed connection")
             data, received[0] = received[0][:length], received[0][length:]
             return data
 
@@ -445,8 +439,6 @@ class HTTPSocket(_socket):
         self.recv_chunked_content = recv_chunked_content
 
     def close(self):
-        f = _socket.fileno(self)
-        self.epoll.unregister(f)
         _socket.close(self)
         # TODO: remove dynamic methods
 
