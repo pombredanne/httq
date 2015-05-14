@@ -461,8 +461,6 @@ class HTTP(object):
     DEFAULT_PORT = 80
 
     _socket = None
-    _send = None
-    _recv = None
     _user_info = None
     _host = None
     _port = None
@@ -535,11 +533,6 @@ class HTTP(object):
     def _connect(self, host, port):
         self._socket = HTTPSocket()
         self._socket.connect((host, port))
-        try:
-            self._send = self._socket.sendmsg
-        except AttributeError:
-            self._send = lambda buffers: map(self._socket.send, buffers)
-        self._recv = self._socket.recv
         self._received = b""
         del self._requests[:]
 
@@ -585,8 +578,6 @@ class HTTP(object):
             self._socket.shutdown(SHUT_RDWR)
             self._socket.close()
         self._socket = None
-        self._send = None
-        self._recv = None
         del self._requests[:]
 
         self._connection_headers.clear()
