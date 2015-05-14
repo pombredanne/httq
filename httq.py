@@ -21,7 +21,7 @@ from collections import deque
 from io import DEFAULT_BUFFER_SIZE
 from json import dumps as json_dumps, loads as json_loads
 import re
-from select import select, epoll, EPOLLIN
+from select import epoll, EPOLLIN
 from _socket import socket as _socket, AF_INET, SOCK_STREAM, IPPROTO_TCP, TCP_NODELAY, SHUT_RDWR
 import socket
 import sys
@@ -524,61 +524,6 @@ class HTTP(object):
     def __exit__(self, exc_type, exc_val, exc_tb):
         # finish reading or writing
         pass
-
-    def _read(self, n):
-        s = self._socket
-        recv = self._recv
-        required = n - len(self._received)
-        while required > 0:
-            ready_to_read, _, _ = select((s,), (), (), 0)
-            while not ready_to_read:
-                ready_to_read, _, _ = select((s,), (), (), 0)
-            data = recv(required if required > DEFAULT_BUFFER_SIZE else DEFAULT_BUFFER_SIZE)
-            if data == b"":
-                raise SocketError("Peer has closed connection")
-            self._received += data
-            required -= len(data)
-        received = self._received
-        data, self._received = received[:n], received[n:]
-        return data
-
-    def _read_up_to(self, n):
-        s = self._socket
-        recv = self._recv
-        required = n - len(self._received)
-        while required > 0:
-            ready_to_read, _, _ = select((s,), (), (), 0)
-            while not ready_to_read:
-                ready_to_read, _, _ = select((s,), (), (), 0)
-            try:
-                data = recv(required if required > DEFAULT_BUFFER_SIZE else DEFAULT_BUFFER_SIZE)
-            except SocketError:
-                break
-            else:
-                if data == b"":
-                    break
-                self._received += data
-                required -= len(data)
-        received = self._received
-        data, self._received = received[:n], received[n:]
-        return data
-
-    def _read_line(self):
-        s = self._socket
-        recv = self._recv
-        eol = self._received.find(b"\r\n")
-        while eol == -1:
-            ready_to_read, _, _ = select((s,), (), (), 0)
-            while ready_to_read:
-                data = recv(DEFAULT_BUFFER_SIZE)
-                if data == b"":
-                    raise SocketError("Peer has closed connection")
-                self._received += data
-                ready_to_read, _, _ = select((s,), (), (), 0)
-            eol = self._received.find(b"\r\n")
-        received = self._received
-        data, self._received = received[:eol], received[(eol + 2):]
-        return data
 
     def _add_connection_headers(self, **headers):
         for name, value in headers.items():
