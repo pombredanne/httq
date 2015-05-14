@@ -36,37 +36,37 @@ class URITestCase(TestCase):
 class ConnectTestCase(TestCase):
 
     def test_can_establish_http_connection_without_port(self):
-        http = HTTP(b"eu.httpbin.org")
-        assert http.host == b"eu.httpbin.org"
+        http = HTTP(b"httq.io")
+        assert http.host == b"httq.io"
         http.close()
 
     def test_can_establish_http_connection_with_port(self):
-        http = HTTP(b"eu.httpbin.org:80")
-        assert http.host == b"eu.httpbin.org:80"
+        http = HTTP(b"httq.io:8080")
+        assert http.host == b"httq.io:8080"
         http.close()
 
-    def test_can_establish_https_connection_without_port(self):
-        http = HTTPS(b"eu.httpbin.org")
-        assert http.host == b"eu.httpbin.org"
-        http.close()
-
-    def test_can_establish_https_connection_with_port(self):
-        http = HTTPS(b"eu.httpbin.org:443")
-        assert http.host == b"eu.httpbin.org:443"
-        http.close()
+    # def test_can_establish_https_connection_without_port(self):
+    #     http = HTTPS(b"eu.httpbin.org")
+    #     assert http.host == b"eu.httpbin.org"
+    #     http.close()
+    #
+    # def test_can_establish_https_connection_with_port(self):
+    #     http = HTTPS(b"eu.httpbin.org:443")
+    #     assert http.host == b"eu.httpbin.org:443"
+    #     http.close()
 
     def test_can_reconnect(self):
-        http = HTTP(b"eu.httpbin.org")
-        assert http.host == b"eu.httpbin.org"
+        http = HTTP(b"httq.io:8080")
+        assert http.host == b"httq.io:8080"
         http.reconnect()
-        assert http.host == b"eu.httpbin.org"
+        assert http.host == b"httq.io:8080"
         http.close()
 
 
 class GetMethodTestCase(TestCase):
 
     def test_can_use_get_method_long_hand(self):
-        http = HTTP(b"httq.io")
+        http = HTTP(b"httq.io:8080")
         http.get(b"/hello")
         http.response()
         assert http.readable()
@@ -79,10 +79,10 @@ class GetMethodTestCase(TestCase):
         http.close()
 
     def test_can_use_get_method_short_hand(self):
-        assert HTTP(b"httq.io").get(b"/hello").response().content == "hello, world"
+        assert HTTP(b"httq.io:8080").get(b"/hello").response().content == "hello, world"
 
     def test_can_use_get_method_with_unicode_args(self):
-        http = HTTP(u"httq.io")
+        http = HTTP(u"httq.io:8080")
         http.get(u"/hello").response()
         assert http.status_code == 200
         assert http.reason == "OK"
@@ -95,9 +95,9 @@ class GetMethodTestCase(TestCase):
     def test_can_pipeline_multiple_get_requests(self):
         count = 3
         turns = range(1, count + 1)
-        http = HTTP(b"httq.io")
+        http = HTTP(b"httq.io:8080")
         for i in turns:
-            http.get("/?%d" % i)
+            http.get("/echo?%d" % i)
             assert len(http._requests) == i
         for i in reversed(turns):
             assert len(http._requests) == i
@@ -107,7 +107,7 @@ class GetMethodTestCase(TestCase):
         http.close()
 
     def test_can_read_in_bits(self):
-        http = HTTP(b"httq.io")
+        http = HTTP(b"httq.io:8080")
         http.get(b"/hello").response()
         assert http.readable()
         assert http.status_code == 200
@@ -125,7 +125,7 @@ class GetMethodTestCase(TestCase):
         http.close()
 
     def test_can_read_some_then_all_the_rest(self):
-        http = HTTP(b"httq.io")
+        http = HTTP(b"httq.io:8080")
         http.get(b"/hello").response()
         assert http.readable()
         assert http.status_code == 200
@@ -141,7 +141,7 @@ class GetMethodTestCase(TestCase):
         http.close()
 
     def test_can_read_some_then_all_the_rest_through_content(self):
-        http = HTTP(b"httq.io")
+        http = HTTP(b"httq.io:8080")
         http.get(b"/hello").response()
         assert http.readable()
         assert http.status_code == 200

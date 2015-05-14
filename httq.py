@@ -21,7 +21,8 @@ from collections import deque
 from io import DEFAULT_BUFFER_SIZE
 from json import dumps as json_dumps, loads as json_loads
 import re
-from select import select
+from select import select, epoll, EPOLLIN
+from _socket import socket as _socket, AF_INET, SOCK_STREAM, IPPROTO_TCP, TCP_NODELAY, SHUT_RDWR
 import socket
 import sys
 
@@ -36,7 +37,7 @@ __copyright__ = "2015, Nigel Small"
 __email__ = "nigel@nigelsmall.com"
 __license__ = "Apache License, Version 2.0"
 __version__ = "0.0.1"
-__all__ = ["HTTP", "Resource", "get", "head", "put", "patch", "post", "delete", "ConnectionError"]
+__all__ = ["HTTP", "Resource", "get", "head", "put", "patch", "post", "delete", "SocketError"]
 
 
 SCHEME = re.compile(b"[A-Za-z][+\-.0-9A-Za-z]*$")
@@ -169,6 +170,7 @@ STATUS_CODES = {bstr(code): code for code in range(100, 600)}
 NO_CONTENT_STATUS_CODES = list(range(100, 200)) + [204, 304]
 
 READ_CHUNKED = object()
+READ_SIZED = object()
 READ_UNTIL_CLOSED = object()
 
 
@@ -314,6 +316,141 @@ def parse_uri_authority(authority):
 # Main classes
 
 
+class SocketError(IOError):
+
+    def __init__(self, *args, **kwargs):
+        super(SocketError, self).__init__(*args, **kwargs)
+
+
+class HTTPSocket(_socket):
+
+    def __init__(self):
+        _socket.__init__(self, AF_INET, SOCK_STREAM)
+        self.epoll = epoll()
+
+    def connect(self, address):
+        _socket.connect(self, address)
+        _socket.setsockopt(self, IPPROTO_TCP, TCP_NODELAY, 1)
+        _socket.setblocking(self, 0)
+
+        f = _socket.fileno(self)
+        self.epoll.register(f, EPOLLIN)
+        poll = self.epoll.poll
+
+        raw_send = _socket.send
+
+        def send_x(data):
+            view = memoryview(data)
+            size = len(view)
+            offset = 0
+            while offset < size:
+                try:
+                    sent = raw_send(self, view[offset:])
+                    if sent == 0:
+                        raise SocketError("Peer closed connection")
+                    offset += sent
+                except BlockingIOError:
+                    pass
+
+        raw_recv = _socket.recv
+        received = [b""]  # the functions below assume exactly one item in this list on entry and exit
+
+        def recv_headers(timeout=-1):
+            end = received[0].find(b"\r\n\r\n")
+            while end == -1:
+                events = poll(timeout)
+                for fileno, event in events:
+                    if fileno == f and event == EPOLLIN:
+                        data = raw_recv(self, 8192)
+                        received[0] += data
+                        end = received[0].find(b"\r\n\r\n")
+                        if data == b"" and end == -1:
+                            raise SocketError("Peer closed connection")
+            data, received[0] = received[0][:end], received[0][(end + 4):]
+            return data.split(b"\r\n")
+
+        def recv_content(length=None, timeout=-1):
+            if length is None:
+                # receive until closed
+                if received[0]:
+                    yield received[0]
+                    received[0] = b""
+                more = True
+                while more:
+                    events = poll(timeout)
+                    for fileno, event in events:
+                        if fileno == f and event == EPOLLIN:
+                            data = raw_recv(self, 8192)
+                            if data == b"":
+                                more = False
+                            else:
+                                yield data
+            else:
+                assert length >= 0
+                # receive fixed amount
+                while length != 0:
+                    data, received[0] = received[0][:length], received[0][length:]
+                    size = len(data)
+                    if size != 0:
+                        yield data
+                        length -= size
+                    if length != 0:
+                        events = poll(timeout)
+                        for fileno, event in events:
+                            if fileno == f and event == EPOLLIN:
+                                data = raw_recv(self, 8192)
+                                if data == b"":
+                                    raise SocketError("Peer closed connection")
+                                received[0] += data
+
+        def recv_line(timeout=-1):
+            end = received[0].find(b"\r\n")
+            while end == -1:
+                events = poll(timeout)
+                for fileno, event in events:
+                    if fileno == f and event == EPOLLIN:
+                        data = raw_recv(self, 8192)
+                        received[0] += data
+                        end = received[0].find(b"\r\n")
+                        if data == b"" and end == -1:
+                            raise SocketError("Peer closed connection")
+            data, received[0] = received[0][:end], received[0][(end + 2):]
+            return data
+
+        def recv_exact(length=-1, timeout=-1):
+            available = len(received[0])
+            while available < length:
+                events = poll(timeout)
+                for fileno, event in events:
+                    if fileno == f and event == EPOLLIN:
+                        data = raw_recv(self, 8192)
+                        received[0] += data
+                        available += len(data)
+                        if data == b"" and available < length:
+                            raise SocketError("Peer closed connection")
+            data, received[0] = received[0][:length], received[0][length:]
+            return data
+
+        def recv_chunked_content(timeout=-1):
+            chunk_size = -1
+            while chunk_size != 0:
+                chunk_size = int(recv_line(timeout=timeout), 16)
+                if chunk_size != 0:
+                    yield recv_exact(chunk_size, timeout=timeout)
+                recv_exact(2, timeout=timeout)
+
+        self.send_x = send_x
+        self.recv_headers = recv_headers
+        self.recv_content = recv_content
+        self.recv_chunked_content = recv_chunked_content
+
+    def close(self):
+        f = _socket.fileno(self)
+        self.epoll.unregister(f)
+        _socket.close(self)
+        # TODO: remove dynamic methods
+
+
 class HTTP(object):
     """ Low-level HTTP client providing access to raw request and response functions.
 
@@ -335,12 +472,13 @@ class HTTP(object):
     _writable = False
     _requests = []
 
-    _readable = False
+    _receiver = None
     _chunks = []
     _version = None
     _status_code = None
     _reason = None
     _response_headers = {}
+    _offset = 0     # read offset for content
     _content = b""
     _content_type = None
     _encoding = None
@@ -371,7 +509,7 @@ class HTTP(object):
         else:
             params.append(host)
             for i, (method, url, _) in enumerate(self._requests):
-                if i == 0 and self._readable:
+                if i == 0 and self.readable():
                     params.append(b"(" + method + b" " + url + b")->(" + bstr(self.status_code) + b")")
                 else:
                     params.append(b"(" + method + b" " + url + b")->()")
@@ -397,7 +535,7 @@ class HTTP(object):
                 ready_to_read, _, _ = select((s,), (), (), 0)
             data = recv(required if required > DEFAULT_BUFFER_SIZE else DEFAULT_BUFFER_SIZE)
             if data == b"":
-                raise ConnectionError("Peer has closed connection")
+                raise SocketError("Peer has closed connection")
             self._received += data
             required -= len(data)
         received = self._received
@@ -414,7 +552,7 @@ class HTTP(object):
                 ready_to_read, _, _ = select((s,), (), (), 0)
             try:
                 data = recv(required if required > DEFAULT_BUFFER_SIZE else DEFAULT_BUFFER_SIZE)
-            except ConnectionError:
+            except SocketError:
                 break
             else:
                 if data == b"":
@@ -434,7 +572,7 @@ class HTTP(object):
             while ready_to_read:
                 data = recv(DEFAULT_BUFFER_SIZE)
                 if data == b"":
-                    raise ConnectionError("Peer has closed connection")
+                    raise SocketError("Peer has closed connection")
                 self._received += data
                 ready_to_read, _, _ = select((s,), (), (), 0)
             eol = self._received.find(b"\r\n")
@@ -453,7 +591,8 @@ class HTTP(object):
             self._connection_headers[name] = value
 
     def _connect(self, host, port):
-        self._socket = socket.create_connection((host, port))
+        self._socket = HTTPSocket()
+        self._socket.connect((host, port))
         try:
             self._send = self._socket.sendmsg
         except AttributeError:
@@ -493,7 +632,7 @@ class HTTP(object):
         """ Re-establish a connection to the same remote host.
         """
         if self._socket:
-            self._socket.shutdown(socket.SHUT_RDWR)
+            self._socket.shutdown(SHUT_RDWR)
             self._socket.close()
         self._connect(self._host, self._port)
 
@@ -501,7 +640,7 @@ class HTTP(object):
         """ Close the current connection.
         """
         if self._socket:
-            self._socket.shutdown(socket.SHUT_RDWR)
+            self._socket.shutdown(SHUT_RDWR)
             self._socket.close()
         self._socket = None
         self._send = None
@@ -602,15 +741,11 @@ class HTTP(object):
             self._writable = False
 
         # Send
-        try:
-            self._send(data)
-        except socket.error:
-            raise ConnectionError("Peer has closed connection")
-        else:
-            self._requests.append((method, url, request_headers))
-            # if __debug__:
-            #     for line in data.splitlines(False):
-            #         log_write((b"> ", line))
+        self._socket.send_x(b"".join(data))
+        self._requests.append((method, url, request_headers))
+        # if __debug__:
+        #     for line in data.splitlines(False):
+        #         log_write((b"> ", line))
 
         return self
 
@@ -733,7 +868,7 @@ class HTTP(object):
             else:
                 data += [hexb(chunk_length), b"\r\n", chunk, b"\r\n"]
 
-        self._send(data)
+        self._socket.send_x(b"".join(data))
 
         return self
 
@@ -745,26 +880,10 @@ class HTTP(object):
         if not self._requests:
             raise IOError("No requests outstanding")
 
-        if self._readable:
+        if self._receiver is not None:
             self.readall()
 
-        s = self._socket
-        recv = self._recv
-        eol = self._received.find(b"\r\n\r\n")
-        while eol == -1:
-            ready_to_read, _, _ = select((s,), (), (), 0)
-            while ready_to_read:
-                data = recv(DEFAULT_BUFFER_SIZE)
-                if data == b"":
-                    raise ConnectionError("Peer has closed connection")
-                self._received += data
-                ready_to_read, _, _ = select((s,), (), (), 0)
-            eol = self._received.find(b"\r\n\r\n")
-        received = self._received
-        data, self._received = received[:eol], received[(eol + 4):]
-        header_lines = data.splitlines(False)
-
-        is_head_response = self.request_method == b"HEAD"
+        header_lines = self._socket.recv_headers()
 
         status_line = header_lines.pop(0)
         if __debug__:
@@ -783,10 +902,14 @@ class HTTP(object):
         # Reason phrase
         self._reason = status_line[(q + 1):]
 
+        # Flag to indicate no response content expected
+        no_content = self.request_method == b"HEAD" or status_code in NO_CONTENT_STATUS_CODES
+
         # Headers
         headers = self._response_headers
         headers.clear()
-        readable = None if status_code in NO_CONTENT_STATUS_CODES else READ_UNTIL_CLOSED
+        content_length = None
+        transfer_encoding = None
         for header_line in header_lines:
             if __debug__:
                 log_write((b"< ", header_line))
@@ -797,179 +920,36 @@ class HTTP(object):
                 p += 1
             value = header_line[p:]
             headers[key] = value
-            if is_head_response:
+            if no_content:
                 pass
-            elif key == b"Content-Length" and readable is not READ_CHUNKED:
+            elif key == b"Content-Length":
                 try:
-                    readable = int(value)
+                    content_length = int(value)
                 except (TypeError, ValueError):
-                    pass
+                    raise RuntimeError("Unparseable content length %r" % value)
             elif key == b"Transfer-Encoding":
-                if value == b"chunked":
-                    readable = READ_CHUNKED
+                transfer_encoding = value
 
+        if no_content:
+            self._receiver = None
+            self._finish()
+        else:
+            if transfer_encoding == b"chunked":
+                self._receiver = self._socket.recv_chunked_content()
+            elif content_length is not None:
+                self._receiver = self._socket.recv_content(content_length)
+            else:
+                self._receiver = self._socket.recv_content(content_length)
+
+        self._offset = 0
         self._content = b""
         self._content_type = None
         self._encoding = None
-        self._typed_content = NotImplemented
-
-        if is_head_response:
-            self._readable = None
-            self._typed_content = None
-            finish = True
-
-        elif readable:
-            self._readable = readable
-            finish = False
-
-        else:
-            finish = True
-
-        if finish:
-            self._readable = None
-
-            self._requests.pop(0)
-            if self.version == "HTTP/1.0":
-                connection = self._response_headers.get(b"Connection", b"close")
-            else:
-                connection = self._response_headers.get(b"Connection", b"keep-alive")
-            if connection.lower() == b"close":
-                self.close()
+        self._typed_content = None if no_content else NotImplemented
 
         return self
 
-    def readable(self):
-        """ Boolean indicating whether response content is currently available to read.
-        """
-        return bool(self._readable)
-
-    def read(self, size=-1):
-        if size == -1:
-            return self.readall()
-
-        readable = self._readable
-        chunks = self._chunks
-
-        if len(chunks) != 1:
-            chunks[:] = [b"".join(chunks)]
-
-        available = len(chunks[0])
-
-        if not readable and not available:
-            return b""
-
-        if available < size:
-
-            s = self._socket
-            recv = self._recv
-            read = self._read
-            read_up_to = self._read_up_to
-            read_line = self._read_line
-
-            if readable is READ_CHUNKED:
-                chunk_size = -1
-                while chunk_size != 0:
-                    chunk_size = int(read_line(), 16)
-                    if chunk_size != 0:
-                        chunks.append(read(chunk_size))
-                        available += chunk_size
-                    read(2)
-                    if __debug__:
-                        log_write((b"< ", b"[chunk ", bstr(chunk_size), b"]"))
-                    if available >= size:
-                        break
-                else:
-                    self._readable = None
-
-            elif readable is READ_UNTIL_CLOSED:
-                while True:
-                    ready_to_read, _, _ = select((s,), (), (), 0)
-                    while not ready_to_read:
-                        ready_to_read, _, _ = select((s,), (), (), 0)
-                    data = recv(size)
-                    if data == b"":
-                        self._readable = None
-                        break
-                    chunks.append(data)
-                    if __debug__:
-                        log_write((b"< ", b"[bytes ", bstr(len(data)), b"]"))
-
-            elif readable:
-                chunk = read_up_to(size - available)
-                chunk_size = len(chunk)
-                if __debug__:
-                    log_write((b"< ", b"[bytes ", bstr(chunk_size), b"]"))
-                chunks.append(chunk)
-                self._readable -= chunk_size
-
-            if len(chunks) != 1:
-                chunks[:] = [b"".join(chunks)]
-
-            if not self._readable:
-                self._requests.pop(0)
-                if self.version == "HTTP/1.0":
-                    connection = self._response_headers.get(b"Connection", b"close")
-                else:
-                    connection = self._response_headers.get(b"Connection", b"keep-alive")
-                if connection == b"close":
-                    self.close()
-
-        s, chunks[0] = chunks[0][:size], chunks[0][size:]
-        self._content += s
-
-        return s
-
-    def readall(self):
-        """ Read and return all available response content.
-        """
-        readable = self._readable
-        chunks = self._chunks
-
-        if len(chunks) != 1:
-            chunks[:] = [b"".join(chunks)]
-
-        available = len(chunks[0])
-
-        if not readable and not available:
-            return b""
-
-        s = self._socket
-        recv = self._recv
-        read = self._read
-        read_line = self._read_line
-
-        if readable is READ_CHUNKED:
-            chunk_size = -1
-            while chunk_size != 0:
-                chunk_size = int(read_line(), 16)
-                if chunk_size != 0:
-                    chunks.append(read(chunk_size))
-                read(2)
-                if __debug__:
-                    log_write((b"< ", b"[chunk ", bstr(chunk_size), b"]"))
-            else:
-                self._readable = None
-
-        elif readable is READ_UNTIL_CLOSED:
-            while True:
-                ready_to_read, _, _ = select((s,), (), (), 0)
-                while not ready_to_read:
-                    ready_to_read, _, _ = select((s,), (), (), 0)
-                data = recv(DEFAULT_BUFFER_SIZE)
-                if data == b"":
-                    self._readable = None
-                    break
-                chunks.append(data)
-                if __debug__:
-                    log_write((b"< ", b"[bytes ", bstr(len(data)), b"]"))
-
-        elif readable:
-            chunk = read(readable)
-            if __debug__:
-                log_write((b"< ", b"[bytes ", bstr(readable), b"]"))
-            chunks.append(chunk)
-            self._readable = 0
-
+    def _finish(self):
         self._requests.pop(0)
         if self.version == "HTTP/1.0":
             connection = self._response_headers.get(b"Connection", b"close")
@@ -978,11 +958,39 @@ class HTTP(object):
         if connection.lower() == b"close":
             self.close()
 
-        s = b"".join(chunks)
-        self._content += s
-        del chunks[:]
+    def readable(self):
+        """ Boolean indicating whether response content is currently available to read.
+        """
+        return bool(self._receiver)
 
-        return s
+    def read(self, size=-1):
+        if size == -1:
+            return self.readall()
+        offset = self._offset
+        while self._receiver is not None and len(self._content) - offset < size:
+            try:
+                data = next(self._receiver)
+            except StopIteration:
+                self._receiver = None
+                self._finish()
+            else:
+                self._content += data
+        end = offset + size
+        data = self._content[offset:end]
+        self._offset = end
+        return data
+
+    def readall(self):
+        """ Read and return all available response content.
+        """
+        if self._receiver is not None:
+            data = b"".join(self._receiver)
+            self._receiver = None
+            self._finish()
+            self._content += data
+        data = self._content[self._offset:]
+        self._offset = len(self._content)
+        return data
 
     def readinto(self, b):
         # TODO
@@ -1058,7 +1066,7 @@ class HTTP(object):
     def content(self):
         """ Full, typed content from the last response.
         """
-        if self._readable:
+        if self.readable():
             self.readall()
         if self._typed_content is NotImplemented:
             content_type = self.content_type
@@ -1116,7 +1124,7 @@ class Resource(object):
         http = self.http
         try:
             return http.get(self.path, **headers).response()
-        except ConnectionError:
+        except SocketError:
             http.reconnect()
             return http.get(self.path, **headers).response()
 
@@ -1124,7 +1132,7 @@ class Resource(object):
         http = self.http
         try:
             return http.head(self.path, **headers).response()
-        except ConnectionError:
+        except SocketError:
             http.reconnect()
             return http.head(self.path, **headers).response()
 
@@ -1132,7 +1140,7 @@ class Resource(object):
         http = self.http
         try:
             return http.put(self.path, content, **headers).response()
-        except ConnectionError:
+        except SocketError:
             http.reconnect()
             return http.put(self.path, content, **headers).response()
 
@@ -1140,7 +1148,7 @@ class Resource(object):
         http = self.http
         try:
             return http.patch(self.path, content, **headers).response()
-        except ConnectionError:
+        except SocketError:
             http.reconnect()
             return http.patch(self.path, content, **headers).response()
 
@@ -1148,7 +1156,7 @@ class Resource(object):
         http = self.http
         try:
             return http.post(self.path, content, **headers).response()
-        except ConnectionError:
+        except SocketError:
             http.reconnect()
             return http.post(self.path, content, **headers).response()
 
@@ -1156,7 +1164,7 @@ class Resource(object):
         http = self.http
         try:
             return http.delete(self.path, **headers).response()
-        except ConnectionError:
+        except SocketError:
             http.reconnect()
             return http.delete(self.path, **headers).response()
 
@@ -1183,12 +1191,6 @@ def post(url, content, **headers):
 
 def delete(url, **headers):
     return Resource(url).delete(**headers)
-
-
-class ConnectionError(IOError):
-
-    def __init__(self, *args, **kwargs):
-        super(ConnectionError, self).__init__(*args, **kwargs)
 
 
 def main():
