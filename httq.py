@@ -467,27 +467,24 @@ class HTTP(object):
     _host = None
     _port = None
     _connection_headers = {}
-    _received = b""
 
     _writable = False
     _requests = []
 
     _receiver = None
-    _chunks = []
     _version = None
     _status_code = None
     _reason = None
     _response_headers = {}
     _offset = 0     # read offset for content
-    _content = b""
+    _raw_content = b""
+    _typed_content = None
     _content_type = None
     _encoding = None
-    _typed_content = None
 
     def __init__(self, authority=None, **headers):
         self._connection_headers = {}
         self._requests = []
-        self._chunks = []
         self._response_headers = {}
         if authority:
             self.connect(authority)
@@ -590,7 +587,6 @@ class HTTP(object):
         self._socket = None
         self._send = None
         self._recv = None
-        self._received = b""
         del self._requests[:]
 
         self._connection_headers.clear()
@@ -887,7 +883,7 @@ class HTTP(object):
                 self._receiver = self._socket.recv_content(content_length)
 
         self._offset = 0
-        self._content = b""
+        self._raw_content = b""
         self._content_type = None
         self._encoding = None
         self._typed_content = None if no_content else NotImplemented
@@ -912,16 +908,16 @@ class HTTP(object):
         if size == -1:
             return self.readall()
         offset = self._offset
-        while self._receiver is not None and len(self._content) - offset < size:
+        while self._receiver is not None and len(self._raw_content) - offset < size:
             try:
                 data = next(self._receiver)
             except StopIteration:
                 self._receiver = None
                 self._finish()
             else:
-                self._content += data
+                self._raw_content += data
         end = offset + size
-        data = self._content[offset:end]
+        data = self._raw_content[offset:end]
         self._offset = end
         return data
 
@@ -932,9 +928,9 @@ class HTTP(object):
             data = b"".join(self._receiver)
             self._receiver = None
             self._finish()
-            self._content += data
-        data = self._content[self._offset:]
-        self._offset = len(self._content)
+            self._raw_content += data
+        data = self._raw_content[self._offset:]
+        self._offset = len(self._raw_content)
         return data
 
     def readinto(self, b):
@@ -1016,13 +1012,13 @@ class HTTP(object):
         if self._typed_content is NotImplemented:
             content_type = self.content_type
             if content_type == "text/html" and BeautifulSoup:
-                self._typed_content = BeautifulSoup(self._content)
+                self._typed_content = BeautifulSoup(self._raw_content)
             elif content_type.startswith("text/"):
-                self._typed_content = self._content.decode(self.encoding)
+                self._typed_content = self._raw_content.decode(self.encoding)
             elif content_type == "application/json":
-                self._typed_content = json_loads(self._content.decode(self.encoding))
+                self._typed_content = json_loads(self._raw_content.decode(self.encoding))
             else:
-                self._typed_content = self._content
+                self._typed_content = self._raw_content
         return self._typed_content
 
 try:
