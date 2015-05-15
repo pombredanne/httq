@@ -22,7 +22,7 @@ from io import DEFAULT_BUFFER_SIZE
 from json import dumps as json_dumps, loads as json_loads
 import re
 from select import select
-from socket import socket as _socket, AF_INET, SOCK_STREAM, IPPROTO_TCP, TCP_NODELAY, SHUT_RDWR, error as socket_error
+from socket import socket, AF_INET, SOCK_STREAM, IPPROTO_TCP, TCP_NODELAY, SHUT_RDWR, error as socket_error
 import sys
 
 try:
@@ -318,14 +318,14 @@ class SocketError(IOError):
         super(SocketError, self).__init__(*args, **kwargs)
 
 
-class HTTPSocket(_socket):
+class HTTPSocket(socket):
 
     def __init__(self):
-        _socket.__init__(self, AF_INET, SOCK_STREAM)
+        socket.__init__(self, AF_INET, SOCK_STREAM)
 
     def connect(self, address):
-        _socket.connect(self, address)
-        _socket.setsockopt(self, IPPROTO_TCP, TCP_NODELAY, 1)
+        socket.connect(self, address)
+        socket.setsockopt(self, IPPROTO_TCP, TCP_NODELAY, 1)
 
         raw_send = self.send
 
@@ -435,7 +435,7 @@ class HTTPSocket(_socket):
         self.recv_chunked_content = recv_chunked_content
 
     def close(self):
-        _socket.close(self)
+        socket.close(self)
         # TODO: remove dynamic methods
 
 
