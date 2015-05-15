@@ -40,16 +40,16 @@ __all__ = ["HTTP", "Resource", "get", "head", "put", "patch", "post", "delete", 
 
 
 SCHEME = re.compile(b"[A-Za-z][+\-.0-9A-Za-z]*$")
-METHODS = {
-    method.decode("UTF-8"): method
+METHODS = dict(
+    (method.decode("UTF-8"), method)
     for method in [b"OPTIONS", b"GET", b"HEAD", b"POST", b"PUT", b"DELETE", b"TRACE"]
-}
-HTTP_VERSIONS = {
-    _version: _version.decode("UTF-8")
+)
+HTTP_VERSIONS = dict(
+    (_version, _version.decode("UTF-8"))
     for _version in [b"HTTP/0.9", b"HTTP/1.0", b"HTTP/1.1"]
-}
-REASONS = {
-    _reason: _reason.decode("UTF-8") for _reason in [
+)
+REASONS = dict(
+    (_reason, _reason.decode("UTF-8")) for _reason in [
         b'Continue',
         b'Switching Protocols',
 
@@ -99,7 +99,7 @@ REASONS = {
         b'HTTP Version Not Supported',
         b'Network Authentication Required',
     ]
-}
+)
 
 if sys.version_info >= (3,):
     SPACE = ord(' ')
@@ -165,7 +165,7 @@ REQUEST_HEADERS = {
     "warning": b"Warning",
 }
 
-STATUS_CODES = {bstr(code): code for code in range(100, 600)}
+STATUS_CODES = dict((bstr(code), code) for code in range(100, 600))
 NO_CONTENT_STATUS_CODES = list(range(100, 200)) + [204, 304]
 
 READ_CHUNKED = object()
