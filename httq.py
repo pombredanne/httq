@@ -39,6 +39,11 @@ __version__ = "0.0.1"
 __all__ = ["HTTP", "Resource", "get", "head", "put", "patch", "post", "delete", "SocketError"]
 
 
+try:
+    memoryview
+except NameError:
+    memoryview = bytes
+
 SCHEME = re.compile(b"[A-Za-z][+\-.0-9A-Za-z]*$")
 METHODS = dict(
     (method.decode("UTF-8"), method)
