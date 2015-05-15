@@ -318,7 +318,16 @@ class SocketError(IOError):
         super(SocketError, self).__init__(*args, **kwargs)
 
 
+def not_implemented(*args, **kwargs):
+    raise NotImplementedError()
+
+
 class HTTPSocket(socket):
+
+    send_x = not_implemented
+    recv_headers = not_implemented
+    recv_content = not_implemented
+    recv_chunked_content = not_implemented
 
     def __init__(self):
         socket.__init__(self, AF_INET, SOCK_STREAM)
@@ -329,14 +338,14 @@ class HTTPSocket(socket):
 
         raw_send = self.send
 
-        def send_x(data):
+        def send_x(data, timeout=0):
             view = memoryview(data)
             size = len(view)
             offset = 0
             while offset < size:
-                _, ready_to_write, _ = select((), (self,), (), 0)
+                _, ready_to_write, _ = select((), (self,), (), timeout)
                 while not ready_to_write:
-                    _, ready_to_write, _ = select((), (self,), (), 0)
+                    _, ready_to_write, _ = select((), (self,), (), timeout)
                 sent = raw_send(view[offset:])
                 if sent == 0:
                     raise SocketError("Peer closed connection")
@@ -345,12 +354,12 @@ class HTTPSocket(socket):
         raw_recv = self.recv
         received = [b""]  # the functions below assume exactly one item in this list on entry and exit
 
-        def recv_headers(timeout=-1):
+        def recv_headers(timeout=0):
             end = received[0].find(b"\r\n\r\n")
             while end == -1:
-                ready_to_read, _, _ = select((self,), (), (), 0)
+                ready_to_read, _, _ = select((self,), (), (), timeout)
                 while not ready_to_read:
-                    ready_to_read, _, _ = select((self,), (), (), 0)
+                    ready_to_read, _, _ = select((self,), (), (), timeout)
                 data = raw_recv(8192)
                 received[0] += data
                 end = received[0].find(b"\r\n\r\n")
@@ -359,7 +368,7 @@ class HTTPSocket(socket):
             data, received[0] = received[0][:end], received[0][(end + 4):]
             return data.split(b"\r\n")
 
-        def recv_content(length=None, timeout=-1):
+        def recv_content(length=None, timeout=0):
             if length is None:
                 # receive until closed
                 if received[0]:
@@ -367,9 +376,9 @@ class HTTPSocket(socket):
                     received[0] = b""
                 more = True
                 while more:
-                    ready_to_read, _, _ = select((self,), (), (), 0)
+                    ready_to_read, _, _ = select((self,), (), (), timeout)
                     while not ready_to_read:
-                        ready_to_read, _, _ = select((self,), (), (), 0)
+                        ready_to_read, _, _ = select((self,), (), (), timeout)
                     data = raw_recv(8192)
                     if data == b"":
                         more = False
@@ -385,20 +394,20 @@ class HTTPSocket(socket):
                         yield data
                         length -= size
                     if length != 0:
-                        ready_to_read, _, _ = select((self,), (), (), 0)
+                        ready_to_read, _, _ = select((self,), (), (), timeout)
                         while not ready_to_read:
-                            ready_to_read, _, _ = select((self,), (), (), 0)
+                            ready_to_read, _, _ = select((self,), (), (), timeout)
                         data = raw_recv(8192)
                         if data == b"":
                             raise SocketError("Peer closed connection")
                         received[0] += data
 
-        def recv_line(timeout=-1):
+        def recv_line(timeout=0):
             end = received[0].find(b"\r\n")
             while end == -1:
-                ready_to_read, _, _ = select((self,), (), (), 0)
+                ready_to_read, _, _ = select((self,), (), (), timeout)
                 while not ready_to_read:
-                    ready_to_read, _, _ = select((self,), (), (), 0)
+                    ready_to_read, _, _ = select((self,), (), (), timeout)
                 data = raw_recv(8192)
                 received[0] += data
                 end = received[0].find(b"\r\n")
@@ -407,12 +416,12 @@ class HTTPSocket(socket):
             data, received[0] = received[0][:end], received[0][(end + 2):]
             return data
 
-        def recv_exact(length=-1, timeout=-1):
+        def recv_exact(length, timeout=0):
             available = len(received[0])
             while available < length:
-                ready_to_read, _, _ = select((self,), (), (), 0)
+                ready_to_read, _, _ = select((self,), (), (), timeout)
                 while not ready_to_read:
-                    ready_to_read, _, _ = select((self,), (), (), 0)
+                    ready_to_read, _, _ = select((self,), (), (), timeout)
                 data = raw_recv(8192)
                 received[0] += data
                 available += len(data)
@@ -421,7 +430,7 @@ class HTTPSocket(socket):
             data, received[0] = received[0][:length], received[0][length:]
             return data
 
-        def recv_chunked_content(timeout=-1):
+        def recv_chunked_content(timeout=0):
             chunk_size = -1
             while chunk_size != 0:
                 chunk_size = int(recv_line(timeout=timeout), 16)
@@ -436,7 +445,10 @@ class HTTPSocket(socket):
 
     def close(self):
         socket.close(self)
-        # TODO: remove dynamic methods
+        self.send_x = not_implemented
+        self.recv_headers = not_implemented
+        self.recv_content = not_implemented
+        self.recv_chunked_content = not_implemented
 
 
 class HTTP(object):
