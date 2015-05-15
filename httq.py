@@ -327,7 +327,7 @@ class HTTPSocket(_socket):
         _socket.connect(self, address)
         _socket.setsockopt(self, IPPROTO_TCP, TCP_NODELAY, 1)
 
-        raw_send = _socket.send
+        raw_send = self.send
 
         def send_x(data):
             view = memoryview(data)
@@ -337,12 +337,12 @@ class HTTPSocket(_socket):
                 _, ready_to_write, _ = select((), (self,), (), 0)
                 while not ready_to_write:
                     _, ready_to_write, _ = select((), (self,), (), 0)
-                sent = raw_send(self, view[offset:])
+                sent = raw_send(view[offset:])
                 if sent == 0:
                     raise SocketError("Peer closed connection")
                 offset += sent
 
-        raw_recv = _socket.recv
+        raw_recv = self.recv
         received = [b""]  # the functions below assume exactly one item in this list on entry and exit
 
         def recv_headers(timeout=-1):
@@ -351,7 +351,7 @@ class HTTPSocket(_socket):
                 ready_to_read, _, _ = select((self,), (), (), 0)
                 while not ready_to_read:
                     ready_to_read, _, _ = select((self,), (), (), 0)
-                data = raw_recv(self, 8192)
+                data = raw_recv(8192)
                 received[0] += data
                 end = received[0].find(b"\r\n\r\n")
                 if data == b"" and end == -1:
@@ -370,7 +370,7 @@ class HTTPSocket(_socket):
                     ready_to_read, _, _ = select((self,), (), (), 0)
                     while not ready_to_read:
                         ready_to_read, _, _ = select((self,), (), (), 0)
-                    data = raw_recv(self, 8192)
+                    data = raw_recv(8192)
                     if data == b"":
                         more = False
                     else:
@@ -388,7 +388,7 @@ class HTTPSocket(_socket):
                         ready_to_read, _, _ = select((self,), (), (), 0)
                         while not ready_to_read:
                             ready_to_read, _, _ = select((self,), (), (), 0)
-                        data = raw_recv(self, 8192)
+                        data = raw_recv(8192)
                         if data == b"":
                             raise SocketError("Peer closed connection")
                         received[0] += data
@@ -399,7 +399,7 @@ class HTTPSocket(_socket):
                 ready_to_read, _, _ = select((self,), (), (), 0)
                 while not ready_to_read:
                     ready_to_read, _, _ = select((self,), (), (), 0)
-                data = raw_recv(self, 8192)
+                data = raw_recv(8192)
                 received[0] += data
                 end = received[0].find(b"\r\n")
                 if data == b"" and end == -1:
@@ -413,7 +413,7 @@ class HTTPSocket(_socket):
                 ready_to_read, _, _ = select((self,), (), (), 0)
                 while not ready_to_read:
                     ready_to_read, _, _ = select((self,), (), (), 0)
-                data = raw_recv(self, 8192)
+                data = raw_recv(8192)
                 received[0] += data
                 available += len(data)
                 if data == b"" and available < length:
