@@ -871,7 +871,7 @@ class HTTP(object):
             elif content_length is not None:
                 self._receiver = self._socket.recv_content(content_length)
             else:
-                self._receiver = self._socket.recv_content(content_length)
+                self._receiver = self._socket.recv_content()
 
         self._offset = 0
         self._raw_content = b""

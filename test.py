@@ -184,6 +184,20 @@ class ConnectTestCase(TestCase):
         http.close()
 
 
+class HeadMethodTestCase(TestCase):
+
+    def test_can_use_head_method_long_hand(self):
+        http = HTTP(b"httq.io:8080")
+        http.head(b"/hello")
+        http.response()
+        assert http.status_code == 200
+        assert http.reason == "OK"
+        assert http.content_type == "text/plain"
+        assert not http.readable()
+        assert http.content is None
+        http.close()
+
+
 class GetMethodTestCase(TestCase):
 
     def test_can_use_get_method_long_hand(self):
@@ -275,6 +289,18 @@ class GetMethodTestCase(TestCase):
         assert not http.readable()
         assert http.read(5) == b""
         http.close()
+
+    def test_can_get_http_1_0(self):
+        assert HTTP(b"httq.io:8080", user_agent=b"OldBrowser/1.0").get(b"/hello").response().content == "hello, world"
+
+    def test_can_get_chunks(self):
+        assert HTTP(b"httq.io:8080").get(b"/chunks").response().content == "chunk 1\r\nchunk 2\r\nchunk 3\r\n"
+
+    def test_can_get_unusual_status(self):
+        http = HTTP(b"httq.io:8080")
+        response = http.get(b"/status?299+Unexpected+Foo").response()
+        assert response.status_code == 299
+        assert response.reason == 'Unexpected Foo'
 
 
 if __name__ == "__main__":

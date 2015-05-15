@@ -9,4 +9,6 @@ __pycache__
 # Sphinx
 www/_build
 
+# Coverage
 .coverage
+htmlcov
