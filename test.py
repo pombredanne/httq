@@ -1,6 +1,7 @@
 
 from socket import SHUT_RDWR
 from unittest import TestCase, main
+import sys
 
 from httq import parse_uri, HTTPSocket, HTTP, HTTPS
 
@@ -217,8 +218,14 @@ class GetMethodTestCase(TestCase):
         assert HTTP(b"httq.io:8080").get(b"/hello").response().content == "hello, world"
 
     def test_can_use_get_method_with_unicode_args(self):
-        http = HTTP(u"httq.io:8080")
-        http.get(u"/hello").response()
+        if sys.version_info >= (3,):
+            host = "httq.io:8080"
+            path = "/hello"
+        else:
+            host = u"httq.io:8080"
+            path = u"/hello"
+        http = HTTP(host)
+        http.get(path).response()
         assert http.status_code == 200
         assert http.reason == "OK"
         assert http.content_type == "text/plain"
