@@ -1043,7 +1043,6 @@ else:
 
     else:
 
-
         class HTTPS(HTTP):
             """ This class allows communication via SSL.
             """
