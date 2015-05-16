@@ -79,12 +79,12 @@ class SizedContentTestCase(TestCase):
     def test_can_retrieve_slow_sized_content(self):
         s = HTTPSocket()
         s.connect(("httq.io", 8080))
-        s.send(b"GET /slow HTTP/1.1\r\nHost: httq.io:8080\r\n\r\n")
+        s.send(b"GET /dots HTTP/1.1\r\nHost: httq.io:8080\r\n\r\n")
         for header in s.recv_headers():
             if header.startswith(b'Content-Length:'):
-                assert header == b'Content-Length: 18'
-        chunks = list(s.recv_content(18))
-        assert chunks == [b'line\r\n', b'line\r\n', b'line\r\n']
+                assert header == b'Content-Length: 3'
+        chunks = list(s.recv_content(3))
+        assert chunks == [b'.', b'.', b'.']
         s.shutdown(SHUT_RDWR)
         s.close()
 
@@ -118,12 +118,12 @@ class UnsizedContentTestCase(TestCase):
     def test_can_retrieve_slow_unsized_content(self):
         s = HTTPSocket()
         s.connect(("httq.io", 8080))
-        s.send(b"GET /slow HTTP/1.1\r\nHost: httq.io:8080\r\nUser-Agent: OldBrowser/1.0\r\n\r\n")
+        s.send(b"GET /dots HTTP/1.1\r\nHost: httq.io:8080\r\nUser-Agent: OldBrowser/1.0\r\n\r\n")
         for header in s.recv_headers():
             if header.startswith(b'HTTP/'):
                 assert header.startswith(b'HTTP/1.0')
         chunks = list(s.recv_content())
-        assert chunks == [b'line\r\n', b'line\r\n', b'line\r\n']
+        assert chunks == [b'.', b'.', b'.']
         s.shutdown(SHUT_RDWR)
         s.close()
 
@@ -297,8 +297,11 @@ class GetMethodTestCase(TestCase):
         assert http.read(5) == b""
         http.close()
 
-    def test_can_get_http_1_0(self):
+    def test_can_get_http_1_0_for_all_requests(self):
         assert HTTP(b"httq.io:8080", user_agent=b"OldBrowser/1.0").get(b"/hello").response().content == "hello, world"
+
+    def test_can_get_http_1_0_for_one_request(self):
+        assert HTTP(b"httq.io:8080").get(b"/hello", user_agent=b"OldBrowser/1.0").response().content == "hello, world"
 
     def test_can_get_chunks(self):
         assert HTTP(b"httq.io:8080").get(b"/chunks").response().content == "chunk 1\r\nchunk 2\r\nchunk 3\r\n"
