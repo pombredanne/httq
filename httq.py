@@ -1022,22 +1022,42 @@ try:
 except ImportError:
     pass
 else:
-    class HTTPS(HTTP):
-        """ This class allows communication via SSL.
-        """
+    if sys.version_info >= (2, 7):
 
-        DEFAULT_PORT = 443
+        class HTTPS(HTTP):
+            """ This class allows communication via SSL.
+            """
 
-        _ssl_context = None
+            DEFAULT_PORT = 443
 
-        def __init__(self, authority=None, **headers):
-            self._ssl_context = ssl.SSLContext(ssl.PROTOCOL_SSLv23)
-            self._ssl_context.options |= ssl.OP_NO_SSLv2
-            super(HTTPS, self).__init__(authority, **headers)
+            _ssl_context = None
 
-        def _connect(self, host, port):
-            super(HTTPS, self)._connect(host, port)
-            self._socket = self._ssl_context.wrap_socket(self._socket, server_hostname=host if ssl.HAS_SNI else None)
+            def __init__(self, authority=None, **headers):
+                self._ssl_context = ssl.SSLContext(ssl.PROTOCOL_SSLv23)
+                self._ssl_context.options |= ssl.OP_NO_SSLv2
+                super(HTTPS, self).__init__(authority, **headers)
+
+            def _connect(self, host, port):
+                super(HTTPS, self)._connect(host, port)
+                self._socket = self._ssl_context.wrap_socket(self._socket, server_hostname=host if ssl.HAS_SNI else None)
+
+    else:
+
+
+        class HTTPS(HTTP):
+            """ This class allows communication via SSL.
+            """
+
+            DEFAULT_PORT = 443
+
+            _ssl_context = None
+
+            def __init__(self, authority=None, **headers):
+                super(HTTPS, self).__init__(authority, **headers)
+
+            def _connect(self, host, port):
+                super(HTTPS, self)._connect(host, port)
+                self._socket = ssl.wrap_socket(self._socket, ssl_version=ssl.PROTOCOL_SSLv23)
 
     __all__.insert(1, "HTTPS")
 
