@@ -222,8 +222,8 @@ class GetMethodTestCase(TestCase):
             host = "httq.io:8080"
             path = "/hello"
         else:
-            host = u"httq.io:8080"
-            path = u"/hello"
+            host = "httq.io:8080".decode("utf-8")
+            path = "/hello".decode("utf-8")
         http = HTTP(host)
         http.get(path).response()
         assert http.status_code == 200
