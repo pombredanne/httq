@@ -185,6 +185,45 @@ class ConnectTestCase(TestCase):
         http.close()
 
 
+class RequestDetailTestCase(TestCase):
+
+    def test_request_method(self):
+        http = HTTP(b"httq.io:8080")
+        http.get(b"/hello")
+        http.response()
+        assert http.request_method == b"GET"
+        http.close()
+
+    def test_request_url(self):
+        http = HTTP(b"httq.io:8080")
+        http.get(b"/hello")
+        http.response()
+        assert http.request_url == b"/hello"
+        http.close()
+
+    def test_request_headers(self):
+        http = HTTP(b"httq.io:8080")
+        http.get(b"/hello")
+        http.response()
+        assert http.request_headers == {b"Host": b"httq.io:8080"}
+        http.close()
+
+    def test_request_method_with_no_request(self):
+        http = HTTP(b"httq.io:8080")
+        assert http.request_method is None
+        http.close()
+
+    def test_request_url_with_no_request(self):
+        http = HTTP(b"httq.io:8080")
+        assert http.request_url is None
+        http.close()
+
+    def test_request_headers_with_no_request(self):
+        http = HTTP(b"httq.io:8080")
+        assert http.request_headers == {b"Host": b"httq.io:8080"}
+        http.close()
+
+
 class HeadMethodTestCase(TestCase):
 
     def test_can_use_head_method_long_hand(self):

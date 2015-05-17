@@ -708,10 +708,12 @@ class HTTP(object):
     def request_headers(self):
         """ The headers sent with the request behind the next response.
         """
+        headers = dict(self._connection_headers)
         try:
-            return self._requests[-1][2]
+            headers.update(self._requests[-1][2])
         except IndexError:
-            return None
+            pass
+        return headers
 
     def options(self, url=b"*", body=None, **headers):
         """ Make or initiate an OPTIONS request to the remote host.
