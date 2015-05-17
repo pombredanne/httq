@@ -313,5 +313,49 @@ class GetMethodTestCase(TestCase):
         assert response.reason == 'Unexpected Foo'
 
 
+class JSONTestCase(TestCase):
+
+    def test_can_get_json(self):
+        http = HTTP(b"httq.io:8080")
+        response = http.get(b"/json?foo=bar").response()
+        content = response.content
+        assert content == {"method": "GET", "query": "foo=bar", "content": ""}
+
+    def test_can_post_json(self):
+        http = HTTP(b"httq.io:8080")
+        response = http.post(b"/json?foo=bar", b"bumblebee").response()
+        content = response.content
+        assert content == {"method": "POST", "query": "foo=bar", "content": "bumblebee"}
+
+    def test_can_put_json(self):
+        http = HTTP(b"httq.io:8080")
+        response = http.put(b"/json?foo=bar", b"bumblebee").response()
+        content = response.content
+        assert content == {"method": "PUT", "query": "foo=bar", "content": "bumblebee"}
+
+    def test_can_delete_json(self):
+        http = HTTP(b"httq.io:8080")
+        response = http.delete(b"/json?foo=bar").response()
+        content = response.content
+        assert content == {"method": "DELETE", "query": "foo=bar", "content": ""}
+
+    def test_can_post_json_in_chunks(self):
+        http = HTTP(b"httq.io:8080")
+        http.post(b"/json?foo=bar")
+        http.write(b"bum")
+        http.write(b"ble")
+        http.write(b"bee")
+        http.write(b"")
+        response = http.response()
+        content = response.content
+        assert content == {"method": "POST", "query": "foo=bar", "content": "bumblebee"}
+
+    def test_can_post_dict_as_json(self):
+        http = HTTP(b"httq.io:8080")
+        response = http.post(b"/json?foo=bar", {"bee": "bumble"}).response()
+        content = response.content
+        assert content == {"method": "POST", "query": "foo=bar", "content": '{"bee": "bumble"}'}
+
+
 if __name__ == "__main__":
     main()
