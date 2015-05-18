@@ -3,7 +3,26 @@ from socket import SHUT_RDWR
 from unittest import TestCase, main
 import sys
 
-from httq import parse_uri, HTTPSocket, HTTP, HTTPS
+from httq import bstr, parse_uri, HTTPSocket, HTTP, HTTPS
+
+
+class HelperTestCase(TestCase):
+
+    def test_can_bstr_bytes(self):
+        b = b"hello, world"
+        assert bstr(b) is b
+
+    def test_can_bstr_bytearray(self):
+        b = bytearray(b"hello, world")
+        assert bstr(b) == b"hello, world"
+
+    def test_can_bstr_text(self):
+        b = b"hello, world".decode("UTF-8")
+        assert bstr(b) == b"hello, world"
+
+    def test_can_bstr_number(self):
+        b = 42
+        assert bstr(b) == b"42"
 
 
 class URITestCase(TestCase):
