@@ -30,5 +30,9 @@ API
 
 .. autoclass:: HTTP
    :members:
-.. autoclass:: ConnectionError
+.. autoclass:: HTTPS
+   :members:
+.. autoclass:: Resource
+   :members:
+.. autoclass:: SocketError
    :members:
