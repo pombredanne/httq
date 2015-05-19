@@ -35,7 +35,7 @@ __author__ = "Nigel Small"
 __copyright__ = "2015, Nigel Small"
 __email__ = "nigel@nigelsmall.com"
 __license__ = "Apache License, Version 2.0"
-__version__ = "0.0.1"
+__version__ = "0.0.2"
 __all__ = ["HTTP", "Resource", "get", "head", "put", "patch", "post", "delete", "SocketError"]
 
 
