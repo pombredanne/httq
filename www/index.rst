@@ -25,8 +25,66 @@ Download
     wget http://httq.io:8080/httq.py
 
 
-API
-===
+Overview
+========
+
+- HTTP/HTTPS
+- Resource
+- Module functions
+    - get/head/put/patch/post/delete
+    - basic_auth
+    - internet_time
+    - parse_header
+    - parse_uri
+    - parse_uri_authority
+- SocketError
+
+
+Managing Connections
+====================
+
+- DEFAULT_PORT
+- connect
+- close
+- reconnect
+- host
+
+
+Sending Requests
+================
+
+- request
+- request_method
+- request_url
+- request_headers
+- options/get/head/post/put/patch/delete/trace
+- writable
+- write
+
+
+Receiving Responses
+===================
+
+- readable
+- read
+- readall
+- readinto
+- version
+- status_code
+- reason
+- headers
+- content_type
+- encoding
+- content
+
+
+Working with Resources
+======================
+
+TODO
+
+Full API
+========
 
 .. autoclass:: HTTP
    :members:

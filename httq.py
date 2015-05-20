@@ -605,7 +605,7 @@ class HTTP(object):
         >>> http.request(b'POST', '/foo/', {"foo": "bar"})
 
         Chunked requests can be initiated by passing :const:`None` to
-        the `body` argument (either explicitly or using hte default
+        the `body` argument (either explicitly or using the default
         value) and following the :func:`request` with one or more
         :func:`write` operations::
 
@@ -680,15 +680,12 @@ class HTTP(object):
         # Send
         self._socket.send_x(b"".join(data))
         self._requests.append((method, url, request_headers))
-        # if __debug__:
-        #     for line in data.splitlines(False):
-        #         log_write((b"> ", line))
 
         return self
 
     @property
     def request_method(self):
-        """ The method used for the request behind the next response.
+        """ The method used for the request that triggered the next upcoming response.
         """
         try:
             return self._requests[-1][0]
@@ -697,7 +694,7 @@ class HTTP(object):
 
     @property
     def request_url(self):
-        """ The URL used for the request behind the next response.
+        """ The URL used for the request that triggered the next upcoming response.
         """
         try:
             return self._requests[-1][1]
@@ -706,7 +703,7 @@ class HTTP(object):
 
     @property
     def request_headers(self):
-        """ The headers sent with the request behind the next response.
+        """ The full set of headers sent with the request that triggered the next upcoming response.
         """
         headers = dict(self._connection_headers)
         try:
@@ -785,14 +782,36 @@ class HTTP(object):
         return self.request(b"TRACE", url, body, **headers)
 
     def writable(self):
-        """ Boolean flag indicating whether a chunked request is currently being written.
+        """ Determine whether a chunked request is currently open for writing. Requests
+        can be opened with the :func:`request` method or one of its aliases, such as
+        :func:`post`.
+
+        :return: :const:`True` if a chunked request is open, :const:`False` otherwise
         """
         return self._writable
 
     def write(self, *chunks):
-        """ Write one or more chunks of request data to the remote host.
+        """ Write one or more chunks of request data to the remote host. For each piece
+        of byte data supplied, one chunk will be added to the HTTP request. If an empty
+        byte string is passed, this will write an empty chunk and end the request and any
+        subsequent arguments will be discarded. If no empty byte string is supplied, the
+        request will remain open.
 
-        :param chunks:
+        ::
+
+            # Write two chunks plus a final, empty chunk
+            http.write(b"hello, ", b"world", b"")
+
+            # Anything following an empty chunk will be discarded
+            http.write(b"some data", b"", b"this data does not exist")
+
+            # Write four chunks and a final empty chunk over three calls
+            http.write(b"line 1\\r\\n", b"line 2\\r\\n")
+            http.write(b"line 3\\r\\n", b"line 4\\r\\n")
+            http.write(b"")
+
+        :param chunks: chunks of byte data to add to the request
+        :return: this HTTP instance
         """
         assert self._writable, "No chunked request sent"
 
@@ -898,7 +917,10 @@ class HTTP(object):
             self.close()
 
     def readable(self):
-        """ Boolean indicating whether response content is currently available to read.
+        """ Determine whether a response is currently open for reading. Responses
+        can be opened with the :func:`response` method.
+
+        :return: :const:`True` if a response is open, :const:`False` otherwise
         """
         return bool(self._receiver)
 
