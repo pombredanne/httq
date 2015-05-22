@@ -107,6 +107,8 @@ REASONS = dict(
 )
 
 if sys.version_info >= (3,):
+    jsonable = (type(None), bool, int, float, str, list, dict)
+
     SPACE = ord(' ')
 
     def bstr(s, encoding="ISO-8859-1"):
@@ -123,6 +125,8 @@ if sys.version_info >= (3,):
         return hex(n)[2:].encode("UTF-8")
 
 else:
+    jsonable = (type(None), bool, int, long, float, unicode, list, dict)
+
     SPACE = b' '
 
     def bstr(s, encoding="ISO-8859-1"):
@@ -198,6 +202,14 @@ def log_dump(out=sys.stdout):
 
 
 # Exported helper functions
+
+
+def json_encode(value):
+    return json_dumps(value, ensure_ascii=True).encode("ASCII")
+
+
+def json_decode(b):
+    return json_loads(b.decode("UTF-8"))
 
 
 def basic_auth(*args):
@@ -457,12 +469,8 @@ class HTTPSocket(socket):
 
 
 class HTTP(object):
-    """ Low-level HTTP client providing access to raw request and response functions.
 
-    :param authority: URI authority to which to connect
-    :param headers:
-    """
-
+    #: The default port for HTTP traffic.
     DEFAULT_PORT = 80
 
     _socket = None
@@ -662,7 +670,7 @@ class HTTP(object):
 
         else:
             # Fixed-length content
-            if isinstance(body, dict):
+            if isinstance(body, jsonable):
                 request_headers[b"Content-Type"] = b"application/json; charset=UTF-8"
                 data.append(b"Content-Type: application/json; charset=UTF-8\r\n")
                 body = json_dumps(body, ensure_ascii=True).encode("UTF-8")
